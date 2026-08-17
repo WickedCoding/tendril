@@ -71,6 +71,71 @@ async def test_remove_from_watchlist_via_keybinding(isolated_xdg: Path, load_fix
 
 
 @pytest.mark.asyncio
+async def test_issue_detail_child_navigation_and_parent(
+    isolated_xdg: Path, load_fixture
+) -> None:
+    """Children appear in the Links tab, selecting one drills in, and `p` walks back."""
+    _seed(load_fixture)
+
+    # Reparent PROJ-1 under PROJ-2 so PROJ-2 shows PROJ-1 as a child in the Links tab,
+    # and PROJ-1's `p` binding walks back to PROJ-2.
+    engine = build_engine()
+    init_schema(engine)
+    from tendril.db.models import Issue
+    with session_factory(engine)() as s:
+        proj1 = s.get(Issue, "PROJ-1")
+        assert proj1 is not None
+        proj1.parent_key = "PROJ-2"
+        s.commit()
+
+    app = TendrilApp(Config(jira=JiraConfig(url="https://x", email="me@x")))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        from textual.widgets import DataTable, TabbedContent
+        table = app.screen.query_one(DataTable)
+        # Open PROJ-2 (the parent).
+        for i, k in enumerate(table.rows.keys()):
+            if str(k.value) == "PROJ-2":
+                table.move_cursor(row=i)
+                break
+        await pilot.press("enter")
+        await pilot.pause()
+
+        from tendril.tui.screens.issue_detail import IssueDetailScreen
+        assert isinstance(app.screen, IssueDetailScreen)
+        assert app.screen.issue_key == "PROJ-2"
+
+        # Switch to Links tab; PROJ-1 must be there as a Child row.
+        tabs = app.screen.query_one(TabbedContent)
+        tabs.active = "tab-links"
+        await pilot.pause()
+
+        links_table = app.screen.query_one("#links-table", DataTable)
+        row_keys = {str(k.value) for k in links_table.rows.keys()}
+        assert "child:PROJ-1" in row_keys
+
+        # Selecting the child row opens PROJ-1.
+        for i, k in enumerate(links_table.rows.keys()):
+            if str(k.value) == "child:PROJ-1":
+                links_table.move_cursor(row=i)
+                break
+        links_table.focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert isinstance(app.screen, IssueDetailScreen)
+        assert app.screen.issue_key == "PROJ-1"
+
+        # `p` walks back to PROJ-2.
+        await pilot.press("p")
+        await pilot.pause()
+        assert isinstance(app.screen, IssueDetailScreen)
+        assert app.screen.issue_key == "PROJ-2"
+
+        # PROJ-2 has no parent — `p` must be hidden.
+        assert app.screen.check_action("open_parent", ()) is False
+
+
+@pytest.mark.asyncio
 async def test_palette_lists_sync_commands(isolated_xdg: Path) -> None:
     """Command-palette provider yields the prompt entry plus one per synced project.
 

@@ -48,19 +48,7 @@ class IssueDTO(BaseModel):
     raw: dict[str, Any]
 
 
-ISSUE_FIELDS = [
-    "summary",
-    "status",
-    "issuetype",
-    "assignee",
-    "reporter",
-    "created",
-    "updated",
-    "duedate",
-    "parent",
-    "issuelinks",
-    "comment",
-]
+ISSUE_FIELDS = ["*all"]
 
 
 def _get(d: dict | None, *path: str, default: Any = None) -> Any:
