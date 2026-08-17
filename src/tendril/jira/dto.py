@@ -79,18 +79,18 @@ def _body_to_text(body: Any) -> str:
     if isinstance(body, str):
         return body
     if isinstance(body, dict):
-        return _adf_to_text(body)
+        return adf_to_text(body)
     return str(body) if body is not None else ""
 
 
-def _adf_to_text(node: dict) -> str:
+def adf_to_text(node: dict) -> str:
     """Best-effort flatten of Atlassian Document Format to plain text."""
     parts: list[str] = []
     if node.get("type") == "text" and isinstance(node.get("text"), str):
         parts.append(node["text"])
     for child in node.get("content") or []:
         if isinstance(child, dict):
-            parts.append(_adf_to_text(child))
+            parts.append(adf_to_text(child))
     return "".join(parts)
 
 

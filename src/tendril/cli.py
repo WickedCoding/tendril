@@ -15,8 +15,9 @@ from tendril.db.models import Comment, Issue, IssueLink
 from tendril.db.schema import init_schema
 from tendril.jira import client as jira_client
 from tendril.sync import commands as sync_ops
+from tendril.text import plural
 
-app = typer.Typer(help="tendril — a keyboard-driven JIRA companion.", no_args_is_help=True)
+app = typer.Typer(help="tendril — a keyboard-driven JIRA companion.")
 config_app = typer.Typer(help="Manage tendril configuration.", no_args_is_help=True)
 sync_app = typer.Typer(help="Sync from JIRA to the local cache.", no_args_is_help=True)
 watchlist_app = typer.Typer(help="Manage the curated issue watchlist.", no_args_is_help=True)
@@ -26,6 +27,16 @@ app.add_typer(watchlist_app, name="watchlist")
 
 console = Console()
 err_console = Console(stderr=True)
+
+
+@app.callback(invoke_without_command=True)
+def _root(ctx: typer.Context) -> None:
+    """Launch the TUI when no subcommand is given."""
+    if ctx.invoked_subcommand is not None:
+        return
+    cfg = _load_config_or_die()
+    from tendril.tui.app import TendrilApp
+    TendrilApp(cfg).run()
 
 
 def _load_config_or_die() -> Config:
@@ -120,7 +131,7 @@ def sync_project_cmd(project_key: str) -> None:
     session, close = _open_session()
     try:
         rows = sync_ops.sync_project(client, session, project_key)
-        console.print(f"[green]Synced[/green] {len(rows)} issue(s) from project [bold]{project_key}[/bold].")
+        console.print(f"[green]Synced[/green] {plural(len(rows), 'issue')} from project [bold]{project_key}[/bold].")
     except Exception as e:
         err_console.print(f"[red]Sync failed:[/red] {e}")
         raise typer.Exit(2)
@@ -141,7 +152,7 @@ def sync_incremental_cmd() -> None:
                 "[dim]Nothing to sync. Run `tendril sync project KEY` at least once first.[/dim]"
             )
             return
-        console.print(f"[green]Synced[/green] {len(rows)} changed issue(s).")
+        console.print(f"[green]Synced[/green] {plural(len(rows), 'changed issue')}.")
     except Exception as e:
         err_console.print(f"[red]Sync failed:[/red] {e}")
         raise typer.Exit(2)
@@ -162,7 +173,7 @@ def watchlist_add_cmd(
     session, close = _open_session()
     try:
         entries, uncached = sync_ops.add_to_watchlist(session, keys, note=note)
-        console.print(f"[green]Watchlist size:[/green] {len(entries)} entry/entries after add.")
+        console.print(f"[green]Watchlist size:[/green] {plural(len(entries), 'entry', 'entries')} after add.")
         if uncached:
             console.print(
                 f"[yellow]Not yet in cache:[/yellow] {', '.join(uncached)}\n"
@@ -180,7 +191,7 @@ def watchlist_remove_cmd(
     session, close = _open_session()
     try:
         n = sync_ops.remove_from_watchlist(session, keys)
-        console.print(f"[green]Removed[/green] {n} entry/entries.")
+        console.print(f"[green]Removed[/green] {plural(n, 'entry', 'entries')}.")
     finally:
         close()
 
@@ -239,7 +250,7 @@ def show(key: str) -> None:
 
         link_count = session.query(IssueLink).filter(IssueLink.source_key == key).count()
         comment_count = session.query(Comment).filter(Comment.issue_key == key).count()
-        console.print(f"\n[dim]{link_count} link(s), {comment_count} comment(s)[/dim]")
+        console.print(f"\n[dim]{plural(link_count, 'link')}, {plural(comment_count, 'comment')}[/dim]")
     finally:
         close()
 
