@@ -14,13 +14,15 @@ from tendril.db.engine import build_engine, session_factory
 from tendril.db.models import Comment, Issue, IssueLink
 from tendril.db.schema import init_schema
 from tendril.jira import client as jira_client
-from tendril.sync.commands import sync_issue as sync_issue_op
+from tendril.sync import commands as sync_ops
 
 app = typer.Typer(help="tendril — a keyboard-driven JIRA companion.", no_args_is_help=True)
 config_app = typer.Typer(help="Manage tendril configuration.", no_args_is_help=True)
 sync_app = typer.Typer(help="Sync from JIRA to the local cache.", no_args_is_help=True)
+watchlist_app = typer.Typer(help="Manage the curated issue watchlist.", no_args_is_help=True)
 app.add_typer(config_app, name="config")
 app.add_typer(sync_app, name="sync")
+app.add_typer(watchlist_app, name="watchlist")
 
 console = Console()
 err_console = Console(stderr=True)
@@ -101,11 +103,112 @@ def sync_issue_cmd(key: str) -> None:
     client = jira_client.build(cfg)
     session, close = _open_session()
     try:
-        row = sync_issue_op(client, session, key)
+        row = sync_ops.sync_issue(client, session, key)
         console.print(f"[green]Synced[/green] {row.key} — {row.summary}")
     except Exception as e:
         err_console.print(f"[red]Sync failed:[/red] {e}")
         raise typer.Exit(2)
+    finally:
+        close()
+
+
+@sync_app.command("project")
+def sync_project_cmd(project_key: str) -> None:
+    """Fetch every issue in a JIRA project into the local cache."""
+    cfg = _load_config_or_die()
+    client = jira_client.build(cfg)
+    session, close = _open_session()
+    try:
+        rows = sync_ops.sync_project(client, session, project_key)
+        console.print(f"[green]Synced[/green] {len(rows)} issue(s) from project [bold]{project_key}[/bold].")
+    except Exception as e:
+        err_console.print(f"[red]Sync failed:[/red] {e}")
+        raise typer.Exit(2)
+    finally:
+        close()
+
+
+@sync_app.command("incremental")
+def sync_incremental_cmd() -> None:
+    """Refetch issues updated since the last incremental sync, across all previously synced projects."""
+    cfg = _load_config_or_die()
+    client = jira_client.build(cfg)
+    session, close = _open_session()
+    try:
+        rows = sync_ops.incremental_sync(client, session)
+        if not rows:
+            console.print(
+                "[dim]Nothing to sync. Run `tendril sync project KEY` at least once first.[/dim]"
+            )
+            return
+        console.print(f"[green]Synced[/green] {len(rows)} changed issue(s).")
+    except Exception as e:
+        err_console.print(f"[red]Sync failed:[/red] {e}")
+        raise typer.Exit(2)
+    finally:
+        close()
+
+
+@watchlist_app.command("add")
+def watchlist_add_cmd(
+    keys: list[str] = typer.Argument(..., help="One or more JIRA issue keys."),
+    note: str | None = typer.Option(None, "--note", "-n", help="Optional note attached to each entry."),
+) -> None:
+    """Add issue keys to the watchlist (idempotent).
+
+    Does not fetch from JIRA. If a key isn't in the local cache yet, sync the
+    project (`tendril sync project KEY`) or the single issue (`tendril sync issue KEY`).
+    """
+    session, close = _open_session()
+    try:
+        entries, uncached = sync_ops.add_to_watchlist(session, keys, note=note)
+        console.print(f"[green]Watchlist size:[/green] {len(entries)} entry/entries after add.")
+        if uncached:
+            console.print(
+                f"[yellow]Not yet in cache:[/yellow] {', '.join(uncached)}\n"
+                "[dim]Run `tendril sync project KEY` or `tendril sync issue KEY` to populate.[/dim]"
+            )
+    finally:
+        close()
+
+
+@watchlist_app.command("remove")
+def watchlist_remove_cmd(
+    keys: list[str] = typer.Argument(..., help="One or more JIRA issue keys."),
+) -> None:
+    """Remove issue keys from the watchlist. The cached issue rows are left alone."""
+    session, close = _open_session()
+    try:
+        n = sync_ops.remove_from_watchlist(session, keys)
+        console.print(f"[green]Removed[/green] {n} entry/entries.")
+    finally:
+        close()
+
+
+@watchlist_app.command("list")
+def watchlist_list_cmd() -> None:
+    """Print the watchlist with cached issue metadata (run `sync watchlist` to populate)."""
+    session, close = _open_session()
+    try:
+        entries = sync_ops.list_watchlist(session)
+        if not entries:
+            console.print("[dim]Watchlist is empty.[/dim]")
+            return
+        table = Table(title="Watchlist")
+        table.add_column("key")
+        table.add_column("status")
+        table.add_column("summary")
+        table.add_column("updated")
+        table.add_column("note")
+        for entry, issue in entries:
+            table.add_row(
+                entry.issue_key,
+                (issue.status if issue else "[dim]-not synced-[/dim]") or "-",
+                (issue.summary if issue else "") or "",
+                str(issue.updated) if issue and issue.updated else "-",
+                entry.note or "",
+            )
+        console.print(table)
     finally:
         close()
 

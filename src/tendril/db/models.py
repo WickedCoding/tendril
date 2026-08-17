@@ -11,12 +11,21 @@ class Base(DeclarativeBase):
 
 
 class SyncState(Base):
-    """Singleton row; id is always 1."""
+    """Singleton row; id is always 1. Holds schema version bookkeeping."""
 
     __tablename__ = "sync_state"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     schema_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
+
+class ProjectSyncState(Base):
+    """Per-project last-sync bookkeeping. A row exists once a project has been synced at least once."""
+
+    __tablename__ = "project_sync_state"
+
+    project_key: Mapped[str] = mapped_column(String, primary_key=True)
+    last_full_sync_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_incremental_sync_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 

@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from tendril.db.models import Issue
-from tendril.jira.fetch import JiraLike, fetch_issue
+from tendril.db.models import Issue, ProjectSyncState, WatchlistEntry
+from tendril.jira.fetch import JiraLike, fetch_issue, search_by_jql
 from tendril.sync.pipeline import upsert_issue
+
+INCREMENTAL_SAFETY_BUFFER = timedelta(minutes=5)
 
 
 def sync_issue(client: JiraLike, session: Session, key: str) -> Issue:
@@ -13,3 +18,122 @@ def sync_issue(client: JiraLike, session: Session, key: str) -> Issue:
     row = upsert_issue(session, dto)
     session.commit()
     return row
+
+
+def sync_project(client: JiraLike, session: Session, project_key: str) -> list[Issue]:
+    """Fetch every issue in a JIRA project and upsert into the cache.
+
+    Paginated via `search_by_jql`. Stamps the project's `last_full_sync_at`
+    so `incremental_sync` knows to include it next time.
+    """
+    now = datetime.now(timezone.utc)
+    dtos = search_by_jql(client, f'project = "{project_key}"')
+    rows = [upsert_issue(session, dto) for dto in dtos]
+    _touch_project_state(session, project_key, full=now, incremental=now)
+    session.commit()
+    return rows
+
+
+def incremental_sync(client: JiraLike, session: Session) -> list[Issue]:
+    """Refetch issues updated since the last incremental sync, per project we've synced before.
+
+    A project is only considered if `sync project` has run for it at least once.
+    Updates each project's `last_incremental_sync_at` on success.
+    """
+    project_states = list(session.scalars(select(ProjectSyncState)).all())
+    if not project_states:
+        return []
+
+    now = datetime.now(timezone.utc)
+    all_rows: list[Issue] = []
+    for state in project_states:
+        since_source = state.last_incremental_sync_at or state.last_full_sync_at
+        if since_source is None:
+            # No timestamp anywhere — fall back to a full project sync.
+            all_rows.extend(sync_project(client, session, state.project_key))
+            continue
+        since = since_source - INCREMENTAL_SAFETY_BUFFER
+        jql = (
+            f'project = "{state.project_key}" '
+            f'AND updated >= "{since.strftime("%Y-%m-%d %H:%M")}"'
+        )
+        dtos = search_by_jql(client, jql)
+        all_rows.extend(upsert_issue(session, dto) for dto in dtos)
+        state.last_incremental_sync_at = now
+
+    session.commit()
+    return all_rows
+
+
+def _touch_project_state(
+    session: Session,
+    project_key: str,
+    *,
+    full: datetime | None = None,
+    incremental: datetime | None = None,
+) -> None:
+    state = session.get(ProjectSyncState, project_key)
+    if state is None:
+        state = ProjectSyncState(project_key=project_key)
+        session.add(state)
+    if full is not None:
+        state.last_full_sync_at = full
+    if incremental is not None:
+        state.last_incremental_sync_at = incremental
+
+
+def add_to_watchlist(
+    session: Session,
+    keys: list[str],
+    note: str | None = None,
+) -> tuple[list[WatchlistEntry], list[str]]:
+    """Add keys to the watchlist. Idempotent.
+
+    Returns (entries, uncached_keys). `uncached_keys` are keys the caller may
+    want to `sync issue KEY` — the watchlist itself does not fetch.
+    """
+    entries: list[WatchlistEntry] = []
+    uncached: list[str] = []
+    max_position = session.query(WatchlistEntry).count()
+    for key in keys:
+        existing = session.get(WatchlistEntry, key)
+        if existing is not None:
+            entries.append(existing)
+        else:
+            entry = WatchlistEntry(
+                issue_key=key,
+                added_at=datetime.now(timezone.utc),
+                note=note,
+                position=max_position,
+            )
+            session.add(entry)
+            entries.append(entry)
+            max_position += 1
+        if session.get(Issue, key) is None:
+            uncached.append(key)
+    session.commit()
+    return entries, uncached
+
+
+def remove_from_watchlist(session: Session, keys: list[str]) -> int:
+    """Remove keys from the watchlist. Returns the number of rows deleted."""
+    deleted = 0
+    for key in keys:
+        entry = session.get(WatchlistEntry, key)
+        if entry is not None:
+            session.delete(entry)
+            deleted += 1
+    session.commit()
+    return deleted
+
+
+def list_watchlist(session: Session) -> list[tuple[WatchlistEntry, Issue | None]]:
+    """Return watchlist entries (in user-defined order) paired with their cached Issue if present."""
+    entries = list(session.scalars(
+        select(WatchlistEntry).order_by(WatchlistEntry.position, WatchlistEntry.added_at)
+    ).all())
+    result: list[tuple[WatchlistEntry, Issue | None]] = []
+    for entry in entries:
+        issue = session.get(Issue, entry.issue_key)
+        result.append((entry, issue))
+    return result

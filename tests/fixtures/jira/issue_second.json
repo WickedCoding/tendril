@@ -1,0 +1,20 @@
+{
+  "key": "PROJ-2",
+  "id": "10002",
+  "fields": {
+    "summary": "Second cached issue",
+    "status": {"name": "Open"},
+    "issuetype": {"name": "Story"},
+    "assignee": null,
+    "reporter": {
+      "accountId": "acc-bob",
+      "displayName": "Bob Backlog"
+    },
+    "created": "2026-02-01T09:00:00.000+0000",
+    "updated": "2026-08-16T10:00:00.000+0000",
+    "duedate": null,
+    "parent": null,
+    "issuelinks": [],
+    "comment": {"comments": []}
+  }
+}
