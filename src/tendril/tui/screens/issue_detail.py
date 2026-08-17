@@ -58,7 +58,7 @@ class IssueDetailScreen(Screen):
 
     def on_mount(self) -> None:
         table = self.query_one("#links-table", DataTable)
-        table.add_columns("type", "direction", "target", "title", "jira_link_id")
+        table.add_columns("type", "direction", "target", "title", "status", "jira_link_id")
         self.reload()
 
     def reload(self) -> None:
@@ -106,27 +106,32 @@ class IssueDetailScreen(Screen):
             children = session.scalars(
                 select(Issue).where(Issue.parent_key == self.issue_key).order_by(Issue.key)
             ).all()
+
             target_keys = {link.target_key for link in links}
             summaries: dict[str, str | None] = {}
             if target_keys:
-                for key, summary in session.execute(
-                    select(Issue.key, Issue.summary).where(Issue.key.in_(target_keys))
+                for key, status, summary in session.execute(
+                    select(Issue.key, Issue.status, Issue.summary).where(Issue.key.in_(target_keys))
                 ):
-                    summaries[key] = summary
+                    summaries[key] = (summary, status)
+
             table = self.query_one("#links-table", DataTable)
             table.clear()
+
             for link in links:
-                arrow = "→ outward" if link.direction == "outward" else "← inward"
+                arrow = "→" if link.direction == "outward" else "←"
                 table.add_row(
                     link.link_type, arrow, link.target_key,
                     _title_cell(link.target_key, summaries),
+                    _status_cell(link.target_key, summaries),
                     link.jira_link_id,
                     key=f"link:{link.id}",
                 )
             for child in children:
                 table.add_row(
-                    "Child", "↓ child", child.key,
+                    "Child", "↓", child.key,
                     child.summary or "[dim]—[/dim]",
+                    child.status or "[dim]-[/dim]",
                     "—",
                     key=f"child:{child.key}",
                 )
@@ -256,11 +261,15 @@ class IssueDetailScreen(Screen):
         self.app.push_screen(FlagsModal(current), after)
 
 
-def _title_cell(target_key: str, summaries: dict[str, str | None]) -> str:
+def _title_cell(target_key: str, summaries: dict[str, (str | None, str | None)]) -> str:
     if target_key not in summaries:
         return "[dim]not synced[/dim]"
-    return summaries[target_key] or "[dim]—[/dim]"
+    return summaries[target_key][0] or "[dim]—[/dim]"
 
+def _status_cell(target_key: str, summaries: dict[str, (str | None, str | None)]) -> str:
+    if target_key not in summaries:
+        return "[dim]not synced[/dim]"
+    return summaries[target_key][1] or "[dim]—[/dim]"
 
 def _extract_description(raw: dict) -> str:
     body = ((raw or {}).get("fields") or {}).get("description")
