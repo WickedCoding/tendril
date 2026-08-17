@@ -4,17 +4,25 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import Screen
-from textual.widgets import Footer, Header, Label, Static, TabbedContent, TabPane
+from textual.widgets import DataTable, Footer, Header, Label, Static, TabbedContent, TabPane
 
 from sqlalchemy import select
 
 from tendril.db.models import Comment, Issue, IssueLink
 from tendril.jira.dto import adf_to_text
+from tendril.operations import ops as write_ops
+from tendril.tui.screens.comment_modal import CommentModal
+from tendril.tui.screens.flags_modal import FlagsModal
+from tendril.tui.screens.link_modal import LinkModal
 
 
 class IssueDetailScreen(Screen):
     BINDINGS = [
         Binding("r", "refresh_issue", "Refresh from JIRA"),
+        Binding("c", "add_comment", "Comment"),
+        Binding("l", "add_link", "Link"),
+        Binding("x", "remove_link", "Remove link"),
+        Binding("f", "edit_flags", "Flags"),
         Binding("escape", "app.pop_screen", "Back"),
         Binding("q", "app.pop_screen", "Back"),
     ]
@@ -41,10 +49,14 @@ class IssueDetailScreen(Screen):
             with TabPane("Comments", id="tab-comments"):
                 yield Static("", id="comments-body", markup=False)
             with TabPane("Links", id="tab-links"):
-                yield Static("", id="links-body")
+                yield DataTable(id="links-table", cursor_type="row", zebra_stripes=True)
+            with TabPane("Flags", id="tab-flags"):
+                yield Static("", id="flags-body")
         yield Footer()
 
     def on_mount(self) -> None:
+        table = self.query_one("#links-table", DataTable)
+        table.add_columns("type", "direction", "target", "jira_link_id")
         self.reload()
 
     def reload(self) -> None:
@@ -53,7 +65,7 @@ class IssueDetailScreen(Screen):
             if issue is None:
                 self.query_one("#title", Label).update(f"[red]{self.issue_key} not in cache[/red]")
                 self.query_one("#description-body", Static).update(
-                    "Run `tendril sync issue {key}` from the shell.".format(key=self.issue_key)
+                    f"Run `tendril sync issue {self.issue_key}` from the shell."
                 )
                 return
 
@@ -84,10 +96,107 @@ class IssueDetailScreen(Screen):
             links = session.scalars(
                 select(IssueLink).where(IssueLink.source_key == self.issue_key)
             ).all()
-            self.query_one("#links-body", Static).update(_format_links(links))
+            table = self.query_one("#links-table", DataTable)
+            table.clear()
+            for link in links:
+                arrow = "→ outward" if link.direction == "outward" else "← inward"
+                table.add_row(link.link_type, arrow, link.target_key, link.jira_link_id, key=str(link.id))
+
+            self.query_one("#flags-body", Static).update(self._render_flags(issue.raw_json))
+
+    def _render_flags(self, raw_json: dict) -> str:
+        field_id = self._flags_field_id()
+        if not field_id:
+            return "[dim]No feature-flags field configured. Set `fields.feature_flags` in config.toml.[/dim]"
+        values = write_ops.read_feature_flags(raw_json, field_id)
+        if not values:
+            return f"[dim]no flags set[/dim]  ([code]{field_id}[/code])"
+        return "  " + "\n  ".join(values) + f"\n\n[dim]field: {field_id}[/dim]"
+
+    def _flags_field_id(self) -> str | None:
+        return self.app.cfg.fields.feature_flags  # type: ignore[attr-defined]
+
+    # ---- actions ----
 
     def action_refresh_issue(self) -> None:
         self.app.run_issue_refresh(self.issue_key, on_done=self.reload)  # type: ignore[attr-defined]
+
+    def action_add_comment(self) -> None:
+        def after(body: str | None) -> None:
+            if not body:
+                return
+            self.app.run_write(  # type: ignore[attr-defined]
+                "Add comment",
+                lambda session, client: write_ops.add_comment(client, session, self.issue_key, body),
+                on_done=self.reload,
+            )
+        self.app.push_screen(CommentModal(), after)
+
+    def action_add_link(self) -> None:
+        default = self.app.cfg.links.default_link_type  # type: ignore[attr-defined]
+
+        def after(result: tuple[str, str] | None) -> None:
+            if not result:
+                return
+            target, link_type = result
+            self.app.run_write(  # type: ignore[attr-defined]
+                f"Link → {target}",
+                lambda session, client: write_ops.create_link(
+                    client, session, self.issue_key, target, link_type
+                ),
+                on_done=self.reload,
+            )
+
+        self.app.push_screen(LinkModal(default_link_type=default), after)
+
+    def action_remove_link(self) -> None:
+        # Only meaningful when the links tab is active AND a row is selected.
+        tabs = self.query_one(TabbedContent)
+        if tabs.active != "tab-links":
+            self.app.notify("Switch to the Links tab to remove a link.", severity="warning")
+            return
+        table = self.query_one("#links-table", DataTable)
+        if table.row_count == 0:
+            return
+        row_key = table.coordinate_to_cell_key(table.cursor_coordinate).row_key
+        with self.app.session_factory() as session:  # type: ignore[attr-defined]
+            link = session.get(IssueLink, int(str(row_key.value)))
+            if link is None:
+                return
+            jira_link_id = link.jira_link_id
+            target = link.target_key
+        self.app.run_write(  # type: ignore[attr-defined]
+            f"Unlink {target}",
+            lambda session, client: write_ops.delete_link(
+                client, session, self.issue_key, jira_link_id
+            ),
+            on_done=self.reload,
+        )
+
+    def action_edit_flags(self) -> None:
+        field_id = self._flags_field_id()
+        if not field_id:
+            self.app.notify(
+                "No feature-flags field configured. Set fields.feature_flags in config.toml.",
+                severity="warning",
+            )
+            return
+        with self.app.session_factory() as session:  # type: ignore[attr-defined]
+            issue = session.get(Issue, self.issue_key)
+            current = write_ops.read_feature_flags(issue.raw_json, field_id) if issue else []
+
+        def after(values: list[str] | None) -> None:
+            if values is None:
+                return
+            self.app.run_write(  # type: ignore[attr-defined]
+                "Set flags",
+                lambda session, client: write_ops.set_feature_flags(
+                    client, session, self.issue_key, field_id, values
+                ),
+                on_done=self.reload,
+            )
+
+        self.app.push_screen(FlagsModal(current), after)
 
 
 def _extract_description(raw: dict) -> str:
@@ -111,13 +220,3 @@ def _format_comments(comments: list[Comment]) -> str:
         lines.append(c.body or "")
         lines.append("")
     return "\n".join(lines).rstrip()
-
-
-def _format_links(links: list[IssueLink]) -> str:
-    if not links:
-        return "[no links]"
-    lines = []
-    for link in links:
-        arrow = "→" if link.direction == "outward" else "←"
-        lines.append(f"  {link.link_type:<15} {arrow} {link.target_key}")
-    return "\n".join(lines)

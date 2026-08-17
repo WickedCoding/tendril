@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable
+from typing import Any, Callable
 
 from textual.app import App
 from textual.worker import Worker
@@ -10,8 +10,9 @@ from tendril.db.engine import build_engine, session_factory as make_session_fact
 from tendril.db.schema import init_schema
 from tendril.db.models import ProjectSyncState
 from tendril.jira import client as jira_client
-from tendril.sync.commands import incremental_sync, sync_issue
+from tendril.sync.commands import incremental_sync, sync_issue, sync_project
 from tendril.text import plural
+from tendril.tui.commands import SyncCommands
 from tendril.tui.screens.watchlist import WatchlistScreen
 
 
@@ -19,6 +20,7 @@ class TendrilApp(App):
     """Textual app root. Holds the SQLAlchemy session factory and JIRA client."""
 
     TITLE = "tendril"
+    COMMANDS = App.COMMANDS | {SyncCommands}
 
     def __init__(self, cfg: Config) -> None:
         super().__init__()
@@ -54,6 +56,58 @@ class TendrilApp(App):
             thread=True,
             name="incremental-sync",
         )
+
+    def run_write(
+        self,
+        label: str,
+        fn: Callable[[Any, Any], None],
+        on_done: Callable[[], None] | None = None,
+    ) -> Worker:
+        """Run a JIRA write in a background thread.
+
+        `fn(session, client)` performs the write. On success we show a toast and,
+        if provided, call `on_done` on the UI thread (typically to reload a screen).
+        """
+        def worker() -> None:
+            try:
+                client = self._get_jira()
+                with self.session_factory() as session:
+                    fn(session, client)
+            except Exception as e:  # noqa: BLE001
+                self.call_from_thread(self.notify, f"{label} failed: {e}", severity="error")
+                return
+            self.call_from_thread(self.notify, f"{label} ok.")
+            if on_done is not None:
+                self.call_from_thread(on_done)
+
+        return self.run_worker(worker, group="write", thread=True, name=label)
+
+    def run_project_sync(self, project_key: str, on_done: Callable[[], None] | None = None) -> Worker:
+        """Full sync of a JIRA project in the background."""
+        return self.run_worker(
+            lambda: self._worker_project_sync(project_key, on_done),
+            group="sync",
+            exclusive=False,
+            thread=True,
+            name=f"project-sync-{project_key}",
+        )
+
+    def _worker_project_sync(self, project_key: str, on_done: Callable[[], None] | None) -> None:
+        client = self._get_jira()
+        try:
+            with self.session_factory() as session:
+                rows = sync_project(client, session, project_key)
+        except Exception as e:  # noqa: BLE001
+            self.call_from_thread(
+                self.notify, f"Sync {project_key} failed: {e}", severity="error"
+            )
+            return
+        self.call_from_thread(
+            self.notify, f"Synced {plural(len(rows), 'issue')} from {project_key}."
+        )
+        self.call_from_thread(self._reload_top_screen)
+        if on_done is not None:
+            self.call_from_thread(on_done)
 
     def run_issue_refresh(self, key: str, on_done: Callable[[], None] | None = None) -> Worker:
         """Refetch a single issue in the background. `on_done` is called on the UI thread."""

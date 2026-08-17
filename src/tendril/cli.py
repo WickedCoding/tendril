@@ -115,6 +115,11 @@ def sync_issue_cmd(key: str) -> None:
     session, close = _open_session()
     try:
         row = sync_ops.sync_issue(client, session, key)
+        if row.key != key:
+            console.print(
+                f"[yellow]Note:[/yellow] {key} has been moved to [bold]{row.key}[/bold]. "
+                "Watchlist entry migrated."
+            )
         console.print(f"[green]Synced[/green] {row.key} — {row.summary}")
     except Exception as e:
         err_console.print(f"[red]Sync failed:[/red] {e}")

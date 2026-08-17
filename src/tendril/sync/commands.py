@@ -13,11 +13,36 @@ INCREMENTAL_SAFETY_BUFFER = timedelta(minutes=5)
 
 
 def sync_issue(client: JiraLike, session: Session, key: str) -> Issue:
-    """Fetch one issue from JIRA and upsert it (with links & comments) into the cache."""
+    """Fetch one issue from JIRA and upsert it into the cache.
+
+    JIRA follows internal redirects when an issue has been moved between projects,
+    so the returned key may differ from `key`. When that happens we migrate any
+    watchlist entry from the old key to the new one so the watchlist stays live.
+    """
     dto = fetch_issue(client, key)
+    if dto.key != key:
+        _migrate_watchlist_key(session, old=key, new=dto.key)
     row = upsert_issue(session, dto)
     session.commit()
     return row
+
+
+def _migrate_watchlist_key(session: Session, *, old: str, new: str) -> None:
+    entry = session.get(WatchlistEntry, old)
+    if entry is None:
+        return
+    if session.get(WatchlistEntry, new) is not None:
+        # New key already on the watchlist; drop the orphan old entry.
+        session.delete(entry)
+        return
+    session.add(WatchlistEntry(
+        issue_key=new,
+        added_at=entry.added_at,
+        note=entry.note,
+        position=entry.position,
+    ))
+    session.delete(entry)
+    session.flush()
 
 
 def sync_project(client: JiraLike, session: Session, project_key: str) -> list[Issue]:

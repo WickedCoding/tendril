@@ -68,3 +68,36 @@ async def test_remove_from_watchlist_via_keybinding(isolated_xdg: Path, load_fix
         await pilot.press("d")
         await pilot.pause()
         assert table.row_count == 1
+
+
+@pytest.mark.asyncio
+async def test_palette_lists_sync_commands(isolated_xdg: Path) -> None:
+    """Command-palette provider yields the prompt entry plus one per synced project.
+
+    Exercises the provider directly against an in-tmp DB so we don't need the
+    full TendrilApp (which would try to launch the auto-sync worker).
+    """
+    from tendril.db.models import ProjectSyncState
+    from tendril.tui.commands import SyncCommands
+
+    engine = build_engine()
+    init_schema(engine)
+    with session_factory(engine)() as s:
+        s.add(ProjectSyncState(project_key="ZED"))
+        s.commit()
+
+    class _StubApp:
+        session_factory = session_factory(engine)
+        def run_project_sync(self, key): pass
+        def push_screen(self, *a, **k): pass
+
+    class _TestProvider(SyncCommands):
+        @property
+        def app(self):  # type: ignore[override]
+            return _StubApp()
+
+    provider = _TestProvider.__new__(_TestProvider)  # skip Provider.__init__ (needs a screen)
+
+    labels = [hit.text async for hit in provider.discover()]
+    assert "Sync project…" in labels
+    assert "Sync project ZED" in labels

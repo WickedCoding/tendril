@@ -133,6 +133,26 @@ def test_incremental_uses_updated_clause_per_project(
     assert any('project = "PROJ"' in q and 'updated >=' in q for q in client.jql_calls)
 
 
+def test_sync_issue_migrates_watchlist_on_jira_rename(
+    session: Session, load_fixture, fake_jira_class
+) -> None:
+    """When JIRA moves an issue to another project, the watchlist entry follows."""
+    from tendril.db.models import WatchlistEntry
+    from tendril.sync.commands import sync_issue
+
+    # JIRA now returns the moved issue under the new key, but a lookup by the old key
+    # still resolves (JIRA follows internal redirects). Model this by mapping OLD -> renamed payload.
+    renamed = {**load_fixture("issue_sample.json"), "key": "MOVED-42"}
+    client = fake_jira_class({"OLD-1": renamed, "MOVED-42": renamed})
+    add_to_watchlist(session, ["OLD-1"])
+
+    sync_issue(client, session, "OLD-1")
+
+    assert session.get(WatchlistEntry, "OLD-1") is None
+    migrated = session.get(WatchlistEntry, "MOVED-42")
+    assert migrated is not None
+
+
 def test_incremental_falls_back_to_full_sync_if_no_timestamp(
     session: Session, load_fixture, fake_jira_class
 ) -> None:
