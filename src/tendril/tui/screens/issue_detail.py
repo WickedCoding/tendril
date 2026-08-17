@@ -22,7 +22,7 @@ from sqlalchemy import select
 from tendril.alerts import ops as alert_ops
 from tendril.alerts.matcher import find_surfaces
 from tendril.db.models import Comment, Issue, IssueLink
-from tendril.jira.dto import adf_to_text
+from tendril.jira.render import render_description
 from tendril.operations import ops as write_ops
 from tendril.tui.screens.comment_modal import CommentModal
 from tendril.tui.screens.flags_modal import FlagsModal
@@ -140,8 +140,8 @@ class IssueDetailScreen(Screen):
                 f"{tag_line}"
             )
 
-            desc = _extract_description(issue.raw_json)
-            self.query_one("#description-body", Static).update(desc or "[no description]")
+            desc = render_description(issue.raw_json)
+            self.query_one("#description-body", Static).update(desc if desc is not None else "[no description]")
 
             comments = session.scalars(
                 select(Comment).where(Comment.issue_key == self.issue_key).order_by(Comment.created)
@@ -427,17 +427,6 @@ def _status_cell(target_key: str, summaries: dict[str, tuple[str | None, str | N
     if target_key not in summaries:
         return "[dim]not synced[/dim]"
     return summaries[target_key][1] or "[dim]—[/dim]"
-
-def _extract_description(raw: dict) -> str:
-    body = ((raw or {}).get("fields") or {}).get("description")
-    if body is None:
-        return ""
-    if isinstance(body, str):
-        return body
-    if isinstance(body, dict):
-        return adf_to_text(body)
-    return str(body)
-
 
 def _format_comments(comments: list[Comment]) -> str:
     if not comments:
