@@ -1,6 +1,6 @@
 [project]
 name = "tendril"
-version = "0.1.0"
+version = "1.0.0"
 description = "A Python TUI for managing JIRA issues and boards."
 readme = "README.md"
 authors = [

@@ -106,7 +106,13 @@ def save(cfg: Config) -> Path:
 
 
 def get_token(email: str) -> str:
-    token = keyring.get_password(KEYRING_SERVICE, email)
+    try:
+        token = keyring.get_password(KEYRING_SERVICE, email)
+    except keyring.errors.KeyringError as e:
+        raise ConfigError(
+            f"Keyring backend refused to read the token: {e}. "
+            "On macOS this usually means the login keychain is locked — unlock it and retry."
+        ) from e
     if not token:
         raise ConfigError(
             f"No API token in keyring for {email}. Run `tendril config init`."
@@ -115,11 +121,18 @@ def get_token(email: str) -> str:
 
 
 def set_token(email: str, token: str) -> None:
-    keyring.set_password(KEYRING_SERVICE, email, token)
+    try:
+        keyring.set_password(KEYRING_SERVICE, email, token)
+    except keyring.errors.KeyringError as e:
+        raise ConfigError(
+            f"Keyring backend refused to store the token: {e}."
+        ) from e
 
 
 def delete_token(email: str) -> None:
     try:
         keyring.delete_password(KEYRING_SERVICE, email)
     except keyring.errors.PasswordDeleteError:
+        pass
+    except keyring.errors.KeyringError:
         pass

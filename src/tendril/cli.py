@@ -70,7 +70,12 @@ def config_init() -> None:
         sync=SyncConfig(),
     )
     path = cfg_mod.save(cfg)
-    cfg_mod.set_token(email, token)
+    try:
+        cfg_mod.set_token(email, token)
+    except ConfigError as e:
+        err_console.print(f"[red]{e}[/red]")
+        err_console.print(f"[dim]Config file at {path} was still written.[/dim]")
+        raise typer.Exit(1)
     console.print(f"[green]Wrote[/green] {path}")
     console.print(f"[green]Stored token in keyring[/green] (service={cfg_mod.KEYRING_SERVICE}, user={email})")
     console.print("Try: [cyan]tendril whoami[/cyan]")
@@ -95,7 +100,11 @@ def config_show() -> None:
 def whoami() -> None:
     """Fetch and display the current JIRA user (verifies auth)."""
     cfg = _load_config_or_die()
-    client = jira_client.build(cfg)
+    try:
+        client = jira_client.build(cfg)
+    except ConfigError as e:
+        err_console.print(f"[red]{e}[/red]")
+        raise typer.Exit(1)
     try:
         me = jira_client.myself(client)
     except Exception as e:

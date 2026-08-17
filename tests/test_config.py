@@ -45,6 +45,26 @@ def test_load_missing_jira_section_raises(isolated_xdg: Path) -> None:
         cfg_mod.load()
 
 
+def test_get_token_wraps_keyring_backend_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    import keyring
+    from keyring.errors import KeyringError
+
+    def _blow_up(service, user):
+        raise KeyringError("backend not available")
+
+    monkeypatch.setattr(keyring, "get_password", _blow_up)
+    with pytest.raises(ConfigError, match="Keyring backend"):
+        cfg_mod.get_token("me@example.com")
+
+
+def test_get_token_missing_raises_actionable_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    import keyring
+
+    monkeypatch.setattr(keyring, "get_password", lambda *a, **k: None)
+    with pytest.raises(ConfigError, match="Run `tendril config init`"):
+        cfg_mod.get_token("me@example.com")
+
+
 def test_save_omits_none_field_ids(isolated_xdg: Path) -> None:
     original = Config(
         jira=JiraConfig(url="https://acme.atlassian.net", email="me@example.com"),
