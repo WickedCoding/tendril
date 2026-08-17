@@ -1,0 +1,125 @@
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass, field
+from pathlib import Path
+import tomllib
+
+import keyring
+import tomli_w
+
+APP_NAME = "tendril"
+KEYRING_SERVICE = "tendril"
+
+
+def _xdg(env: str, fallback: Path) -> Path:
+    val = os.environ.get(env)
+    return Path(val) if val else fallback
+
+
+def config_dir() -> Path:
+    return _xdg("XDG_CONFIG_HOME", Path.home() / ".config") / APP_NAME
+
+
+def config_path() -> Path:
+    return config_dir() / "config.toml"
+
+
+def data_dir() -> Path:
+    return _xdg("XDG_DATA_HOME", Path.home() / ".local" / "share") / APP_NAME
+
+
+@dataclass
+class JiraConfig:
+    url: str
+    email: str
+
+
+@dataclass
+class FieldsConfig:
+    feature_flags: str | None = None
+    sprint: str | None = None
+
+
+@dataclass
+class LinksConfig:
+    default_link_type: str = "Relates"
+
+
+@dataclass
+class SyncConfig:
+    default_jql_extra: str = ""
+
+
+@dataclass
+class Config:
+    jira: JiraConfig
+    fields: FieldsConfig = field(default_factory=FieldsConfig)
+    links: LinksConfig = field(default_factory=LinksConfig)
+    sync: SyncConfig = field(default_factory=SyncConfig)
+
+
+class ConfigError(Exception):
+    pass
+
+
+def load() -> Config:
+    path = config_path()
+    if not path.exists():
+        raise ConfigError(
+            f"No config found at {path}. Run `tendril config init` first."
+        )
+    with path.open("rb") as f:
+        raw = tomllib.load(f)
+
+    jira_raw = raw.get("jira") or {}
+    if "url" not in jira_raw or "email" not in jira_raw:
+        raise ConfigError(f"{path} is missing [jira].url or [jira].email")
+
+    return Config(
+        jira=JiraConfig(url=jira_raw["url"], email=jira_raw["email"]),
+        fields=FieldsConfig(**(raw.get("fields") or {})),
+        links=LinksConfig(**(raw.get("links") or {"default_link_type": "Relates"})),
+        sync=SyncConfig(**(raw.get("sync") or {"default_jql_extra": ""})),
+    )
+
+
+def save(cfg: Config) -> Path:
+    path = config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "jira": {"url": cfg.jira.url, "email": cfg.jira.email},
+        "fields": {
+            k: v
+            for k, v in {
+                "feature_flags": cfg.fields.feature_flags,
+                "sprint": cfg.fields.sprint,
+            }.items()
+            if v is not None
+        },
+        "links": {"default_link_type": cfg.links.default_link_type},
+        "sync": {"default_jql_extra": cfg.sync.default_jql_extra},
+    }
+    with path.open("wb") as f:
+        tomli_w.dump(payload, f)
+    return path
+
+
+def get_token(email: str) -> str:
+    token = keyring.get_password(KEYRING_SERVICE, email)
+    if not token:
+        raise ConfigError(
+            f"No API token in keyring for {email}. Run `tendril config init`."
+        )
+    return token
+
+
+def set_token(email: str, token: str) -> None:
+    keyring.set_password(KEYRING_SERVICE, email, token)
+
+
+def delete_token(email: str) -> None:
+    try:
+        keyring.delete_password(KEYRING_SERVICE, email)
+    except keyring.errors.PasswordDeleteError:
+        pass
