@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Protocol
 
-from tendril.jira.dto import ISSUE_FIELDS, IssueDTO, normalize_issue
+from tendril.jira.dto import ISSUE_FIELDS, SEARCH_FIELDS, IssueDTO, normalize_issue
 
 JQL_CHUNK = 50
 
@@ -19,9 +19,26 @@ class JiraLike(Protocol):
     ) -> dict[str, Any]: ...
 
 
-def fetch_issue(client: JiraLike, key: str) -> IssueDTO:
+def _compose(base: list[str], extra: list[str] | None) -> str:
+    """Join base + extra field names into the CSV JIRA expects, deduping."""
+    if not extra:
+        return ",".join(base)
+    seen: set[str] = set()
+    out: list[str] = []
+    for f in [*base, *extra]:
+        if f and f not in seen:
+            seen.add(f)
+            out.append(f)
+    return ",".join(out)
+
+
+def fetch_issue(
+    client: JiraLike,
+    key: str,
+    extra_fields: list[str] | None = None,
+) -> IssueDTO:
     """Fetch a single issue with links and comments, normalized to an IssueDTO."""
-    payload = client.issue(key, fields=",".join(ISSUE_FIELDS))
+    payload = client.issue(key, fields=_compose(ISSUE_FIELDS, extra_fields))
     return normalize_issue(payload)
 
 
@@ -30,11 +47,15 @@ def _chunks(items: list[str], size: int) -> Iterable[list[str]]:
         yield items[i : i + size]
 
 
-def search_by_keys(client: JiraLike, keys: list[str]) -> list[IssueDTO]:
+def search_by_keys(
+    client: JiraLike,
+    keys: list[str],
+    extra_fields: list[str] | None = None,
+) -> list[IssueDTO]:
     """Fetch many issues by key via JQL, chunking the key list to stay within request limits."""
     out: list[IssueDTO] = []
     for chunk in _chunks(keys, JQL_CHUNK):
-        out.extend(search_by_jql(client, jql_key_in(chunk)))
+        out.extend(search_by_jql(client, jql_key_in(chunk), extra_fields=extra_fields))
     return out
 
 
@@ -46,13 +67,17 @@ def jql_key_in(keys: list[str]) -> str:
     return f"key in ({quoted})"
 
 
-def search_by_jql(client: JiraLike, jql: str) -> list[IssueDTO]:
+def search_by_jql(
+    client: JiraLike,
+    jql: str,
+    extra_fields: list[str] | None = None,
+) -> list[IssueDTO]:
     """Run a JQL query and return normalized DTOs, paginating until exhausted.
 
     Uses JIRA Cloud's token-based pagination (`enhanced_jql`): each response
     carries `nextPageToken` + `isLast`, replacing the deprecated `startAt/total` shape.
     """
-    fields = ",".join(ISSUE_FIELDS)
+    fields = _compose(SEARCH_FIELDS, extra_fields)
     out: list[IssueDTO] = []
     token: str | None = None
     while True:

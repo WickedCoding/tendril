@@ -96,7 +96,7 @@ class TendrilApp(App):
         client = self._get_jira()
         try:
             with self.session_factory() as session:
-                rows = sync_project(client, session, project_key)
+                rows = sync_project(client, session, project_key, cfg=self.cfg)
         except Exception as e:  # noqa: BLE001
             self.call_from_thread(
                 self.notify, f"Sync {project_key} failed: {e}", severity="error"
@@ -125,7 +125,7 @@ class TendrilApp(App):
         client = self._get_jira()
         try:
             with self.session_factory() as session:
-                rows = incremental_sync(client, session)
+                rows = incremental_sync(client, session, cfg=self.cfg)
         except Exception as e:  # noqa: BLE001
             self.call_from_thread(self.notify, f"Sync failed: {e}", severity="error")
             return
@@ -136,7 +136,7 @@ class TendrilApp(App):
         client = self._get_jira()
         try:
             with self.session_factory() as session:
-                sync_issue(client, session, key)
+                sync_issue(client, session, key, cfg=self.cfg)
         except Exception as e:  # noqa: BLE001
             self.call_from_thread(self.notify, f"Refresh failed: {e}", severity="error")
             return

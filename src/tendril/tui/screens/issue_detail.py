@@ -218,18 +218,23 @@ class IssueDetailScreen(Screen):
         self.app.run_issue_refresh(self.issue_key, on_done=self.reload)  # type: ignore[attr-defined]
 
     def action_add_comment(self) -> None:
+        cfg = self.app.cfg  # type: ignore[attr-defined]
+
         def after(body: str | None) -> None:
             if not body:
                 return
             self.app.run_write(  # type: ignore[attr-defined]
                 "Add comment",
-                lambda session, client: write_ops.add_comment(client, session, self.issue_key, body),
+                lambda session, client: write_ops.add_comment(
+                    client, session, self.issue_key, body, cfg=cfg
+                ),
                 on_done=self.reload,
             )
         self.app.push_screen(CommentModal(), after)
 
     def action_add_link(self) -> None:
-        default = self.app.cfg.links.default_link_type  # type: ignore[attr-defined]
+        cfg = self.app.cfg  # type: ignore[attr-defined]
+        default = cfg.links.default_link_type
 
         def after(result: tuple[str, str] | None) -> None:
             if not result:
@@ -238,7 +243,7 @@ class IssueDetailScreen(Screen):
             self.app.run_write(  # type: ignore[attr-defined]
                 f"Link → {target}",
                 lambda session, client: write_ops.create_link(
-                    client, session, self.issue_key, target, link_type
+                    client, session, self.issue_key, target, link_type, cfg=cfg
                 ),
                 on_done=self.reload,
             )
@@ -266,10 +271,11 @@ class IssueDetailScreen(Screen):
                 return
             jira_link_id = link.jira_link_id
             target = link.target_key
+        cfg = self.app.cfg  # type: ignore[attr-defined]
         self.app.run_write(  # type: ignore[attr-defined]
             f"Unlink {target}",
             lambda session, client: write_ops.delete_link(
-                client, session, self.issue_key, jira_link_id
+                client, session, self.issue_key, jira_link_id, cfg=cfg
             ),
             on_done=self.reload,
         )
@@ -349,6 +355,7 @@ class IssueDetailScreen(Screen):
 
         source_key = self.issue_key
         target_key = target_issue.key
+        cfg = self.app.cfg  # type: ignore[attr-defined]
 
         def after(link_type: str | None) -> None:
             if not link_type:
@@ -356,7 +363,7 @@ class IssueDetailScreen(Screen):
             self.app.run_write(  # type: ignore[attr-defined]
                 f"Link → {target_key}",
                 lambda session, client: write_ops.create_link(
-                    client, session, source_key, target_key, link_type
+                    client, session, source_key, target_key, link_type, cfg=cfg
                 ),
                 on_done=self.reload,
             )
@@ -384,13 +391,15 @@ class IssueDetailScreen(Screen):
             issue = session.get(Issue, self.issue_key)
             current = write_ops.read_feature_flags(issue.raw_json, field_id) if issue else []
 
+        cfg = self.app.cfg  # type: ignore[attr-defined]
+
         def after(values: list[str] | None) -> None:
             if values is None:
                 return
             self.app.run_write(  # type: ignore[attr-defined]
                 "Set flags",
                 lambda session, client: write_ops.set_feature_flags(
-                    client, session, self.issue_key, field_id, values
+                    client, session, self.issue_key, field_id, values, cfg=cfg
                 ),
                 on_done=self.reload,
             )

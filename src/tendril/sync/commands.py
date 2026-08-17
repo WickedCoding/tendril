@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from tendril.config import Config
 from tendril.db.models import Issue, ProjectSyncState, WatchlistEntry
 from tendril.jira.fetch import JiraLike, fetch_issue, search_by_jql
 from tendril.sync.pipeline import upsert_issue
@@ -12,14 +13,32 @@ from tendril.sync.pipeline import upsert_issue
 INCREMENTAL_SAFETY_BUFFER = timedelta(minutes=5)
 
 
-def sync_issue(client: JiraLike, session: Session, key: str) -> Issue:
+def _extras_for_cfg(cfg: Config | None) -> list[str]:
+    """Turn configured custom-field ids into the extra_fields list JIRA needs.
+
+    `cfg.fields.sprint` and `cfg.fields.feature_flags` are opt-in per-instance
+    customfield ids. When set, they're appended so project-sync payloads carry
+    them into the cache — otherwise the detail view would render them empty
+    even though JIRA has values.
+    """
+    if cfg is None:
+        return []
+    return [f for f in (cfg.fields.sprint, cfg.fields.feature_flags) if f]
+
+
+def sync_issue(
+    client: JiraLike,
+    session: Session,
+    key: str,
+    cfg: Config | None = None,
+) -> Issue:
     """Fetch one issue from JIRA and upsert it into the cache.
 
     JIRA follows internal redirects when an issue has been moved between projects,
     so the returned key may differ from `key`. When that happens we migrate any
     watchlist entry from the old key to the new one so the watchlist stays live.
     """
-    dto = fetch_issue(client, key)
+    dto = fetch_issue(client, key, extra_fields=_extras_for_cfg(cfg))
     if dto.key != key:
         _migrate_watchlist_key(session, old=key, new=dto.key)
     row = upsert_issue(session, dto)
@@ -45,21 +64,31 @@ def _migrate_watchlist_key(session: Session, *, old: str, new: str) -> None:
     session.flush()
 
 
-def sync_project(client: JiraLike, session: Session, project_key: str) -> list[Issue]:
+def sync_project(
+    client: JiraLike,
+    session: Session,
+    project_key: str,
+    cfg: Config | None = None,
+) -> list[Issue]:
     """Fetch every issue in a JIRA project and upsert into the cache.
 
     Paginated via `search_by_jql`. Stamps the project's `last_full_sync_at`
     so `incremental_sync` knows to include it next time.
     """
     now = datetime.now(timezone.utc)
-    dtos = search_by_jql(client, f'project = "{project_key}"')
+    extras = _extras_for_cfg(cfg)
+    dtos = search_by_jql(client, f'project = "{project_key}"', extra_fields=extras)
     rows = [upsert_issue(session, dto) for dto in dtos]
     _touch_project_state(session, project_key, full=now, incremental=now)
     session.commit()
     return rows
 
 
-def incremental_sync(client: JiraLike, session: Session) -> list[Issue]:
+def incremental_sync(
+    client: JiraLike,
+    session: Session,
+    cfg: Config | None = None,
+) -> list[Issue]:
     """Refetch issues updated since the last incremental sync, per project we've synced before.
 
     A project is only considered if `sync project` has run for it at least once.
@@ -70,19 +99,20 @@ def incremental_sync(client: JiraLike, session: Session) -> list[Issue]:
         return []
 
     now = datetime.now(timezone.utc)
+    extras = _extras_for_cfg(cfg)
     all_rows: list[Issue] = []
     for state in project_states:
         since_source = state.last_incremental_sync_at or state.last_full_sync_at
         if since_source is None:
             # No timestamp anywhere — fall back to a full project sync.
-            all_rows.extend(sync_project(client, session, state.project_key))
+            all_rows.extend(sync_project(client, session, state.project_key, cfg=cfg))
             continue
         since = since_source - INCREMENTAL_SAFETY_BUFFER
         jql = (
             f'project = "{state.project_key}" '
             f'AND updated >= "{since.strftime("%Y-%m-%d %H:%M")}"'
         )
-        dtos = search_by_jql(client, jql)
+        dtos = search_by_jql(client, jql, extra_fields=extras)
         all_rows.extend(upsert_issue(session, dto) for dto in dtos)
         state.last_incremental_sync_at = now
 

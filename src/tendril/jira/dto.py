@@ -48,7 +48,30 @@ class IssueDTO(BaseModel):
     raw: dict[str, Any]
 
 
-ISSUE_FIELDS = ["*all"]
+# JIRA Cloud's `POST /rest/api/3/search/jql` (enhanced_jql) returns ONLY what
+# you name — `*all` there means "all navigable fields" and silently drops
+# description plus every custom field. So both endpoints get explicit lists.
+# Kept as two literals (not one shared list) so search vs single-issue can
+# diverge later without a refactor.
+#
+# Config-driven custom fields (sprint id, feature-flags id) are appended per
+# call via `extra_fields` in fetch.py — see sync.commands._extras_for_cfg.
+
+SEARCH_FIELDS: list[str] = [
+    "summary", "status", "issuetype",
+    "assignee", "reporter",
+    "created", "updated", "duedate",
+    "parent", "description",
+    "issuelinks", "comment",
+]
+
+ISSUE_FIELDS: list[str] = [
+    "summary", "status", "issuetype",
+    "assignee", "reporter",
+    "created", "updated", "duedate",
+    "parent", "description",
+    "issuelinks", "comment",
+]
 
 
 def _get(d: dict | None, *path: str, default: Any = None) -> Any:

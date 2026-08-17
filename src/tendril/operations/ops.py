@@ -4,6 +4,7 @@ from typing import Any, Protocol
 
 from sqlalchemy.orm import Session
 
+from tendril.config import Config
 from tendril.db.models import Issue
 from tendril.jira import write as jw
 from tendril.jira.fetch import JiraLike
@@ -14,10 +15,16 @@ class OpsJira(JiraLike, jw.JiraWriteLike, Protocol):
     """Client capable of both reads (fetch) and writes (add/link/update)."""
 
 
-def add_comment(client: OpsJira, session: Session, key: str, body: str) -> Issue:
+def add_comment(
+    client: OpsJira,
+    session: Session,
+    key: str,
+    body: str,
+    cfg: Config | None = None,
+) -> Issue:
     """Post a comment to JIRA and refresh the issue in the local cache."""
     jw.add_comment(client, key, body)
-    return sync_issue(client, session, key)
+    return sync_issue(client, session, key, cfg=cfg)
 
 
 def create_link(
@@ -26,19 +33,26 @@ def create_link(
     source_key: str,
     target_key: str,
     link_type: str,
+    cfg: Config | None = None,
 ) -> Issue:
     """Create `source --link_type--> target` in JIRA and refresh the source in the cache.
 
     The target is not refreshed automatically — the user can open it and press `r` if needed.
     """
     jw.create_link(client, link_type, source_key, target_key)
-    return sync_issue(client, session, source_key)
+    return sync_issue(client, session, source_key, cfg=cfg)
 
 
-def delete_link(client: OpsJira, session: Session, source_key: str, jira_link_id: str) -> Issue:
+def delete_link(
+    client: OpsJira,
+    session: Session,
+    source_key: str,
+    jira_link_id: str,
+    cfg: Config | None = None,
+) -> Issue:
     """Remove a link and refresh the source in the cache."""
     jw.remove_link(client, jira_link_id)
-    return sync_issue(client, session, source_key)
+    return sync_issue(client, session, source_key, cfg=cfg)
 
 
 def set_feature_flags(
@@ -47,6 +61,7 @@ def set_feature_flags(
     key: str,
     field_id: str,
     values: list[str],
+    cfg: Config | None = None,
 ) -> Issue:
     """Overwrite the feature-flags labels custom field.
 
@@ -54,7 +69,7 @@ def set_feature_flags(
     payload is a plain list of strings. Empty list clears all flags.
     """
     jw.update_field(client, key, field_id, list(values))
-    return sync_issue(client, session, key)
+    return sync_issue(client, session, key, cfg=cfg)
 
 
 def read_feature_flags(raw_json: dict, field_id: str) -> list[str]:

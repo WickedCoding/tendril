@@ -128,7 +128,7 @@ def sync_issue_cmd(key: str) -> None:
     client = jira_client.build(cfg)
     session, close = _open_session()
     try:
-        row = sync_ops.sync_issue(client, session, key)
+        row = sync_ops.sync_issue(client, session, key, cfg=cfg)
         if row.key != key:
             console.print(
                 f"[yellow]Note:[/yellow] {key} has been moved to [bold]{row.key}[/bold]. "
@@ -149,7 +149,7 @@ def sync_project_cmd(project_key: str) -> None:
     client = jira_client.build(cfg)
     session, close = _open_session()
     try:
-        rows = sync_ops.sync_project(client, session, project_key)
+        rows = sync_ops.sync_project(client, session, project_key, cfg=cfg)
         console.print(f"[green]Synced[/green] {plural(len(rows), 'issue')} from project [bold]{project_key}[/bold].")
     except Exception as e:
         err_console.print(f"[red]Sync failed:[/red] {e}")
@@ -165,7 +165,7 @@ def sync_incremental_cmd() -> None:
     client = jira_client.build(cfg)
     session, close = _open_session()
     try:
-        rows = sync_ops.incremental_sync(client, session)
+        rows = sync_ops.incremental_sync(client, session, cfg=cfg)
         if not rows:
             console.print(
                 "[dim]Nothing to sync. Run `tendril sync project KEY` at least once first.[/dim]"
