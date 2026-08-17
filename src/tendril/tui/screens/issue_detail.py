@@ -2,18 +2,33 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
-from textual.widgets import DataTable, Footer, Header, Label, Static, TabbedContent, TabPane
+from textual.widgets import (
+    DataTable,
+    Footer,
+    Header,
+    Label,
+    OptionList,
+    Static,
+    TabbedContent,
+    TabPane,
+)
+from textual.widgets.option_list import Option
 
+from rich.text import Text
 from sqlalchemy import select
 
+from tendril.alerts import ops as alert_ops
+from tendril.alerts.matcher import find_surfaces
 from tendril.db.models import Comment, Issue, IssueLink
 from tendril.jira.dto import adf_to_text
 from tendril.operations import ops as write_ops
 from tendril.tui.screens.comment_modal import CommentModal
 from tendril.tui.screens.flags_modal import FlagsModal
 from tendril.tui.screens.link_modal import LinkModal
+from tendril.tui.screens.surface_card_modal import SurfaceCardModal
+from tendril.tui.screens.tags_modal import TagsModal
 
 
 class IssueDetailScreen(Screen):
@@ -23,6 +38,9 @@ class IssueDetailScreen(Screen):
         Binding("l", "add_link", "Link"),
         Binding("x", "remove_link", "Remove link"),
         Binding("f", "edit_flags", "Flags"),
+        Binding("t", "edit_tags", "Tags"),
+        Binding("A", "toggle_alert", "Alert on/off"),
+        Binding("s", "focus_surfaces", "Surfaces"),
         Binding("p", "open_parent", "Parent"),
         Binding("escape", "app.pop_screen", "Back"),
         Binding("q", "app.pop_screen", "Back"),
@@ -31,13 +49,24 @@ class IssueDetailScreen(Screen):
     DEFAULT_CSS = """
     #meta-panel { height: auto; padding: 1 2; }
     #meta-panel Label { margin-right: 2; }
-    TabbedContent { height: 1fr; }
+    #detail-body { height: 1fr; }
+    #detail-body > TabbedContent { width: 7fr; height: 1fr; }
+    #surfaces-panel {
+        width: 3fr; height: 1fr;
+        padding: 1 1;
+        border-left: solid $panel;
+    }
+    #surfaces-header { color: $text-muted; padding-bottom: 1; }
+    #surfaces-empty { color: $text-muted; }
+    #surfaces-list { height: 1fr; }
+    #links-table { height: 1fr; }
     """
 
     def __init__(self, issue_key: str) -> None:
         super().__init__()
         self.issue_key = issue_key
         self._parent_key: str | None = None
+        self._surfaces: list[tuple[Issue, list[str]]] = []
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -45,20 +74,32 @@ class IssueDetailScreen(Screen):
             yield Label("", id="title")
             yield Label("", id="meta-line-1")
             yield Label("", id="meta-line-2")
-        with TabbedContent(initial="tab-description"):
-            with TabPane("Description", id="tab-description"):
-                yield Static("", id="description-body", markup=False)
-            with TabPane("Comments", id="tab-comments"):
-                yield Static("", id="comments-body", markup=False)
-            with TabPane("Links", id="tab-links"):
-                yield DataTable(id="links-table", cursor_type="row", zebra_stripes=True)
-            with TabPane("Flags", id="tab-flags"):
-                yield Static("", id="flags-body")
+        with Horizontal(id="detail-body"):
+            with TabbedContent(initial="tab-description"):
+                with TabPane("Description", id="tab-description"):
+                    yield Static("", id="description-body", markup=False)
+                with TabPane("Comments", id="tab-comments"):
+                    yield Static("", id="comments-body", markup=False)
+                with TabPane("Links", id="tab-links"):
+                    yield DataTable(id="links-table", cursor_type="row", zebra_stripes=True)
+                with TabPane("Flags", id="tab-flags"):
+                    yield Static("", id="flags-body")
+            with VerticalScroll(id="surfaces-panel"):
+                yield Static("Surfaces", id="surfaces-header")
+                yield OptionList(id="surfaces-list")
+                yield Static("no surfaces", id="surfaces-empty")
         yield Footer()
 
     def on_mount(self) -> None:
         table = self.query_one("#links-table", DataTable)
-        table.add_columns("type", "direction", "target", "title", "status", "jira_link_id")
+        # Fixed column widths so the table fits inside the 7fr detail pane instead of
+        # auto-sizing to the widest title and overflowing under the surfaces panel.
+        # The row key still carries `link:<id>` / `child:<key>` for remove/navigate.
+        table.add_column("type", width=10)
+        table.add_column("direction", width=3)
+        table.add_column("target", width=14)
+        table.add_column("title", width=60)
+        table.add_column("status", width=16)
         self.reload()
 
     def reload(self) -> None:
@@ -66,18 +107,24 @@ class IssueDetailScreen(Screen):
             issue = session.get(Issue, self.issue_key)
             if issue is None:
                 self._parent_key = None
+                self._surfaces = []
                 self.refresh_bindings()
                 self.query_one("#title", Label).update(f"[red]{self.issue_key} not in cache[/red]")
                 self.query_one("#description-body", Static).update(
                     f"Run `tendril sync issue {self.issue_key}` from the shell."
                 )
+                self._render_surfaces_panel([])
                 return
 
             self._parent_key = issue.parent_key
             self.refresh_bindings()
 
+            alert_suffix = " · [yellow]ALERT[/yellow]" if alert_ops.is_alert(session, self.issue_key) else ""
+            tags = alert_ops.list_tags_for(session, self.issue_key)
+            tag_line = f"   tags: {', '.join('#' + t for t in tags)}" if tags else ""
+
             self.query_one("#title", Label).update(
-                f"[bold]{issue.key}[/bold] · {issue.status or '—'} · {issue.issuetype or '—'}\n"
+                f"[bold]{issue.key}[/bold] · {issue.status or '—'} · {issue.issuetype or '—'}{alert_suffix}\n"
                 f"[b]{issue.summary or ''}[/b]"
             )
             self.query_one("#meta-line-1", Label).update(
@@ -90,6 +137,7 @@ class IssueDetailScreen(Screen):
                 f"updated: {issue.updated or '—'}   "
                 f"due: {issue.duedate or '—'}   "
                 f"synced: {issue.last_synced_at}"
+                f"{tag_line}"
             )
 
             desc = _extract_description(issue.raw_json)
@@ -108,7 +156,7 @@ class IssueDetailScreen(Screen):
             ).all()
 
             target_keys = {link.target_key for link in links}
-            summaries: dict[str, str | None] = {}
+            summaries: dict[str, tuple[str | None, str | None]] = {}
             if target_keys:
                 for key, status, summary in session.execute(
                     select(Issue.key, Issue.status, Issue.summary).where(Issue.key.in_(target_keys))
@@ -124,7 +172,6 @@ class IssueDetailScreen(Screen):
                     link.link_type, arrow, link.target_key,
                     _title_cell(link.target_key, summaries),
                     _status_cell(link.target_key, summaries),
-                    link.jira_link_id,
                     key=f"link:{link.id}",
                 )
             for child in children:
@@ -132,11 +179,26 @@ class IssueDetailScreen(Screen):
                     "Child", "↓", child.key,
                     child.summary or "[dim]—[/dim]",
                     child.status or "[dim]-[/dim]",
-                    "—",
                     key=f"child:{child.key}",
                 )
 
             self.query_one("#flags-body", Static).update(self._render_flags(issue.raw_json))
+
+            self._surfaces = find_surfaces(session, self.issue_key)
+            self._render_surfaces_panel(self._surfaces)
+
+    def _render_surfaces_panel(self, surfaces: list[tuple[Issue, list[str]]]) -> None:
+        option_list = self.query_one("#surfaces-list", OptionList)
+        empty = self.query_one("#surfaces-empty", Static)
+        option_list.clear_options()
+        if not surfaces:
+            option_list.display = False
+            empty.display = True
+            return
+        empty.display = False
+        option_list.display = True
+        for idx, (issue, shared_tags) in enumerate(surfaces):
+            option_list.add_option(Option(_card_prompt(issue, shared_tags), id=str(idx)))
 
     def _render_flags(self, raw_json: dict) -> str:
         field_id = self._flags_field_id()
@@ -217,6 +279,41 @@ class IssueDetailScreen(Screen):
             return
         self.app.push_screen(IssueDetailScreen(self._parent_key))
 
+    def action_edit_tags(self) -> None:
+        with self.app.session_factory() as session:  # type: ignore[attr-defined]
+            current = alert_ops.list_tags_for(session, self.issue_key)
+
+        def after(values: list[str] | None) -> None:
+            if values is None:
+                return
+            with self.app.session_factory() as session:  # type: ignore[attr-defined]
+                alert_ops.set_tags(session, self.issue_key, values)
+            self.reload()
+
+        self.app.push_screen(TagsModal(current), after)
+
+    def action_toggle_alert(self) -> None:
+        with self.app.session_factory() as session:  # type: ignore[attr-defined]
+            if alert_ops.is_alert(session, self.issue_key):
+                alert_ops.unmark_alert(session, self.issue_key)
+                self.app.notify(f"{self.issue_key} · alert off")
+            else:
+                alert_ops.mark_alert(session, self.issue_key)
+                tags = alert_ops.list_tags_for(session, self.issue_key)
+                if tags:
+                    self.app.notify(f"{self.issue_key} · alert on")
+                else:
+                    self.app.notify(
+                        f"{self.issue_key} · alert on — add tags with `t` so it can fire.",
+                        severity="warning",
+                    )
+        self.reload()
+
+    def action_focus_surfaces(self) -> None:
+        option_list = self.query_one("#surfaces-list", OptionList)
+        if option_list.display:
+            option_list.focus()
+
     def check_action(self, action: str, parameters: tuple) -> bool | None:
         if action == "open_parent":
             return bool(self._parent_key)
@@ -234,6 +331,46 @@ class IssueDetailScreen(Screen):
                 target = link.target_key if link else None
         if target:
             self.app.push_screen(IssueDetailScreen(target))
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        if event.option_list.id != "surfaces-list":
+            return
+        opt_id = event.option.id
+        if opt_id is None:
+            return
+        try:
+            idx = int(opt_id)
+        except ValueError:
+            return
+        if not (0 <= idx < len(self._surfaces)):
+            return
+        target_issue, shared_tags = self._surfaces[idx]
+        default = self.app.cfg.links.default_link_type  # type: ignore[attr-defined]
+
+        source_key = self.issue_key
+        target_key = target_issue.key
+
+        def after(link_type: str | None) -> None:
+            if not link_type:
+                return
+            self.app.run_write(  # type: ignore[attr-defined]
+                f"Link → {target_key}",
+                lambda session, client: write_ops.create_link(
+                    client, session, source_key, target_key, link_type
+                ),
+                on_done=self.reload,
+            )
+
+        self.app.push_screen(
+            SurfaceCardModal(
+                target_key=target_key,
+                status=target_issue.status,
+                summary=target_issue.summary,
+                shared_tags=shared_tags,
+                default_link_type=default,
+            ),
+            after,
+        )
 
     def action_edit_flags(self) -> None:
         field_id = self._flags_field_id()
@@ -261,12 +398,23 @@ class IssueDetailScreen(Screen):
         self.app.push_screen(FlagsModal(current), after)
 
 
-def _title_cell(target_key: str, summaries: dict[str, (str | None, str | None)]) -> str:
+def _card_prompt(issue: Issue, shared_tags: list[str]) -> Text:
+    """Rich Text for one surface card: three lines (key+status, summary, shared tags)."""
+    header = Text()
+    header.append(issue.key, style="bold")
+    header.append(f"  ·  {issue.status or '—'}")
+    summary = Text((issue.summary or "").strip() or "—")
+    summary.truncate(120, overflow="ellipsis")
+    tags = Text("shared: " + " · ".join("#" + t for t in shared_tags), style="dim")
+    return Text("\n").join([header, summary, tags])
+
+
+def _title_cell(target_key: str, summaries: dict[str, tuple[str | None, str | None]]) -> str:
     if target_key not in summaries:
         return "[dim]not synced[/dim]"
     return summaries[target_key][0] or "[dim]—[/dim]"
 
-def _status_cell(target_key: str, summaries: dict[str, (str | None, str | None)]) -> str:
+def _status_cell(target_key: str, summaries: dict[str, tuple[str | None, str | None]]) -> str:
     if target_key not in summaries:
         return "[dim]not synced[/dim]"
     return summaries[target_key][1] or "[dim]—[/dim]"

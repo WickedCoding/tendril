@@ -136,6 +136,98 @@ async def test_issue_detail_child_navigation_and_parent(
 
 
 @pytest.mark.asyncio
+async def test_surface_card_renders_for_shared_tag(
+    isolated_xdg: Path, load_fixture
+) -> None:
+    """A tagged alert issue surfaces as a card when the viewed issue shares a tag."""
+    _seed(load_fixture)
+
+    engine = build_engine()
+    init_schema(engine)
+    from tendril.alerts import ops as alert_ops
+
+    with session_factory(engine)() as s:
+        alert_ops.add_tags(s, "PROJ-1", ["logo"])
+        alert_ops.add_tags(s, "PROJ-2", ["logo"])
+        alert_ops.mark_alert(s, "PROJ-1")
+
+    app = TendrilApp(Config(jira=JiraConfig(url="https://x", email="me@x")))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        from textual.widgets import DataTable, OptionList, Static
+        table = app.screen.query_one(DataTable)
+        # Open PROJ-2 — PROJ-1 (the alert) should surface via shared "logo" tag.
+        for i, k in enumerate(table.rows.keys()):
+            if str(k.value) == "PROJ-2":
+                table.move_cursor(row=i)
+                break
+        await pilot.press("enter")
+        await pilot.pause()
+
+        from tendril.tui.screens.issue_detail import IssueDetailScreen
+        assert isinstance(app.screen, IssueDetailScreen)
+
+        option_list = app.screen.query_one("#surfaces-list", OptionList)
+        empty = app.screen.query_one("#surfaces-empty", Static)
+        assert option_list.option_count == 1
+        assert option_list.display is True
+        assert empty.display is False
+
+
+@pytest.mark.asyncio
+async def test_surfaces_panel_shows_empty_state_without_matches(
+    isolated_xdg: Path, load_fixture
+) -> None:
+    _seed(load_fixture)
+
+    app = TendrilApp(Config(jira=JiraConfig(url="https://x", email="me@x")))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        from textual.widgets import DataTable, OptionList, Static
+        table = app.screen.query_one(DataTable)
+        table.move_cursor(row=0)
+        await pilot.press("enter")
+        await pilot.pause()
+
+        option_list = app.screen.query_one("#surfaces-list", OptionList)
+        empty = app.screen.query_one("#surfaces-empty", Static)
+        assert option_list.option_count == 0
+        assert option_list.display is False
+        assert empty.display is True
+
+
+@pytest.mark.asyncio
+async def test_toggle_alert_binding_flips_marker(
+    isolated_xdg: Path, load_fixture
+) -> None:
+    _seed(load_fixture)
+
+    app = TendrilApp(Config(jira=JiraConfig(url="https://x", email="me@x")))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        from textual.widgets import DataTable
+        table = app.screen.query_one(DataTable)
+        table.move_cursor(row=0)
+        await pilot.press("enter")
+        await pilot.pause()
+
+        await pilot.press("A")
+        await pilot.pause()
+
+        from tendril.alerts import ops as alert_ops
+        engine = build_engine()
+        init_schema(engine)
+        with session_factory(engine)() as s:
+            assert alert_ops.is_alert(s, "PROJ-1") is True
+
+        await pilot.press("A")
+        await pilot.pause()
+
+        with session_factory(engine)() as s:
+            assert alert_ops.is_alert(s, "PROJ-1") is False
+
+
+@pytest.mark.asyncio
 async def test_palette_lists_sync_commands(isolated_xdg: Path) -> None:
     """Command-palette provider yields the prompt entry plus one per synced project.
 

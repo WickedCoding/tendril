@@ -90,3 +90,21 @@ class WatchlistEntry(Base):
     added_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class IssueTag(Base):
+    """Local, free-form label on a cached issue. Never pushed to JIRA."""
+
+    __tablename__ = "issue_tag"
+
+    issue_key: Mapped[str] = mapped_column(String, primary_key=True)
+    tag: Mapped[str] = mapped_column(String, primary_key=True)
+
+
+class IssueAlert(Base):
+    """Marker: this issue should surface as a card when another cached issue shares any of its tags."""
+
+    __tablename__ = "issue_alert"
+
+    issue_key: Mapped[str] = mapped_column(String, primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)

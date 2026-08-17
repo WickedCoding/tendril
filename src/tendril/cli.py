@@ -9,6 +9,7 @@ from rich.table import Table
 from sqlalchemy.orm import Session
 
 from tendril import config as cfg_mod
+from tendril.alerts import ops as alert_ops
 from tendril.config import Config, ConfigError, FieldsConfig, JiraConfig, LinksConfig, SyncConfig
 from tendril.db.engine import build_engine, session_factory
 from tendril.db.models import Comment, Issue, IssueLink
@@ -21,9 +22,13 @@ app = typer.Typer(help="tendril — a keyboard-driven JIRA companion.")
 config_app = typer.Typer(help="Manage tendril configuration.", no_args_is_help=True)
 sync_app = typer.Typer(help="Sync from JIRA to the local cache.", no_args_is_help=True)
 watchlist_app = typer.Typer(help="Manage the curated issue watchlist.", no_args_is_help=True)
+tag_app = typer.Typer(help="Manage local tags on cached issues (never pushed to JIRA).", no_args_is_help=True)
+alert_app = typer.Typer(help="Manage local alerts — mark issues to surface on tag overlap.", no_args_is_help=True)
 app.add_typer(config_app, name="config")
 app.add_typer(sync_app, name="sync")
 app.add_typer(watchlist_app, name="watchlist")
+app.add_typer(tag_app, name="tag")
+app.add_typer(alert_app, name="alert")
 
 console = Console()
 err_console = Console(stderr=True)
@@ -265,6 +270,153 @@ def show(key: str) -> None:
         link_count = session.query(IssueLink).filter(IssueLink.source_key == key).count()
         comment_count = session.query(Comment).filter(Comment.issue_key == key).count()
         console.print(f"\n[dim]{plural(link_count, 'link')}, {plural(comment_count, 'comment')}[/dim]")
+    finally:
+        close()
+
+
+@tag_app.command("add")
+def tag_add_cmd(
+    key: str = typer.Argument(..., help="JIRA issue key."),
+    tags: list[str] = typer.Argument(..., help="One or more tags to add."),
+) -> None:
+    """Add tags to a cached issue (idempotent). Tags are local — never pushed to JIRA."""
+    session, close = _open_session()
+    try:
+        rows = alert_ops.add_tags(session, key, tags)
+        console.print(
+            f"[green]{key}[/green] now has {plural(len(rows), 'tag')}: "
+            + (", ".join(sorted(r.tag for r in rows)) or "[dim]none[/dim]")
+        )
+    finally:
+        close()
+
+
+@tag_app.command("remove")
+def tag_remove_cmd(
+    key: str = typer.Argument(..., help="JIRA issue key."),
+    tags: list[str] = typer.Argument(..., help="One or more tags to remove."),
+) -> None:
+    """Remove tags from a cached issue."""
+    session, close = _open_session()
+    try:
+        n = alert_ops.remove_tags(session, key, tags)
+        console.print(f"[green]Removed[/green] {plural(n, 'tag')} from {key}.")
+    finally:
+        close()
+
+
+@tag_app.command("set")
+def tag_set_cmd(
+    key: str = typer.Argument(..., help="JIRA issue key."),
+    tags: list[str] = typer.Argument(None, help="Tags to assign. Omit to clear all tags."),
+) -> None:
+    """Replace the full tag set for an issue. The bulk-write an LLM would use."""
+    session, close = _open_session()
+    try:
+        rows = alert_ops.set_tags(session, key, tags or [])
+        if rows:
+            console.print(
+                f"[green]{key}[/green] tags set to: "
+                + ", ".join(sorted(r.tag for r in rows))
+            )
+        else:
+            console.print(f"[green]Cleared[/green] all tags on {key}.")
+    finally:
+        close()
+
+
+@tag_app.command("list")
+def tag_list_cmd(
+    key: str | None = typer.Argument(None, help="Limit to one issue key. Omit to list all tagged issues."),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+) -> None:
+    """List tagged issues. `--json` for machine consumption (LLM pipelines)."""
+    import json as _json
+
+    session, close = _open_session()
+    try:
+        if key:
+            tags = alert_ops.list_tags_for(session, key)
+            if json_out:
+                console.print_json(_json.dumps({key: tags}))
+                return
+            if not tags:
+                console.print(f"[dim]{key} has no tags.[/dim]")
+                return
+            console.print(f"[bold]{key}[/bold]: {', '.join(tags)}")
+            return
+
+        pairs = alert_ops.list_all_tagged(session)
+        if json_out:
+            console.print_json(_json.dumps({k: t for k, t in pairs}))
+            return
+        if not pairs:
+            console.print("[dim]No tagged issues.[/dim]")
+            return
+        table = Table(title="Tagged issues")
+        table.add_column("key")
+        table.add_column("tags")
+        for k, tags in pairs:
+            table.add_row(k, ", ".join(tags))
+        console.print(table)
+    finally:
+        close()
+
+
+@alert_app.command("add")
+def alert_add_cmd(key: str = typer.Argument(..., help="JIRA issue key to mark as an alert.")) -> None:
+    """Mark an issue as an alert. It will surface when another cached issue shares any of its tags."""
+    session, close = _open_session()
+    try:
+        alert_ops.mark_alert(session, key)
+        tags = alert_ops.list_tags_for(session, key)
+        if tags:
+            console.print(f"[green]{key}[/green] is now an alert (tags: {', '.join(tags)}).")
+        else:
+            console.print(
+                f"[green]{key}[/green] is now an alert. "
+                f"[yellow]It has no tags yet — nothing will surface until you tag it "
+                f"with `tendril tag add {key} TAG`.[/yellow]"
+            )
+    finally:
+        close()
+
+
+@alert_app.command("remove")
+def alert_remove_cmd(key: str = typer.Argument(..., help="JIRA issue key to un-alert.")) -> None:
+    """Remove the alert marker. The issue's tags are left alone."""
+    session, close = _open_session()
+    try:
+        removed = alert_ops.unmark_alert(session, key)
+        if removed:
+            console.print(f"[green]Removed[/green] alert marker from {key}.")
+        else:
+            console.print(f"[dim]{key} was not an alert.[/dim]")
+    finally:
+        close()
+
+
+@alert_app.command("list")
+def alert_list_cmd() -> None:
+    """List every issue marked as an alert, with its tags."""
+    session, close = _open_session()
+    try:
+        alerts = alert_ops.list_alerts(session)
+        if not alerts:
+            console.print("[dim]No alerts.[/dim]")
+            return
+        table = Table(title="Alerts")
+        table.add_column("key")
+        table.add_column("tags")
+        table.add_column("since")
+        for a in alerts:
+            tags = alert_ops.list_tags_for(session, a.issue_key)
+            table.add_row(
+                a.issue_key,
+                ", ".join(tags) if tags else "[yellow]— (won't fire)[/yellow]",
+                str(a.created_at),
+            )
+        console.print(table)
     finally:
         close()
 
