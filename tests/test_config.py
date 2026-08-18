@@ -13,6 +13,7 @@ from tendril.config import (
     LinksConfig,
     OverviewConfig,
     SyncConfig,
+    UIConfig,
 )
 
 
@@ -103,6 +104,32 @@ def test_overview_defaults_when_section_absent(isolated_xdg: Path) -> None:
     loaded = cfg_mod.load()
     assert "Closed" in loaded.overview.done_statuses
     assert "Deployed to Prod" in loaded.overview.done_statuses
+
+
+def test_ui_theme_roundtrip(isolated_xdg: Path) -> None:
+    original = Config(
+        jira=JiraConfig(url="https://x", email="me@x"),
+        ui=UIConfig(theme="nord"),
+    )
+    cfg_mod.save(original)
+    assert 'theme = "nord"' in cfg_mod.config_path().read_text()
+    assert cfg_mod.load().ui.theme == "nord"
+
+
+def test_ui_omitted_when_theme_none(isolated_xdg: Path) -> None:
+    cfg_mod.save(Config(jira=JiraConfig(url="https://x", email="me@x")))
+    assert "[ui]" not in cfg_mod.config_path().read_text()
+    assert cfg_mod.load().ui.theme is None
+
+
+def test_ui_rejects_non_string_theme(isolated_xdg: Path) -> None:
+    path = cfg_mod.config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        '[jira]\nurl = "https://x"\nemail = "me@x"\n[ui]\ntheme = 3\n'
+    )
+    with pytest.raises(ConfigError, match="theme"):
+        cfg_mod.load()
 
 
 def test_overview_rejects_non_string_statuses(isolated_xdg: Path) -> None:

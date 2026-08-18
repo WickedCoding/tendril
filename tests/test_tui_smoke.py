@@ -584,3 +584,32 @@ async def test_palette_lists_sync_commands(isolated_xdg: Path) -> None:
     labels = [hit.text async for hit in provider.discover()]
     assert "Sync project…" in labels
     assert "Sync project ZED" in labels
+
+
+@pytest.mark.asyncio
+async def test_theme_change_persists_to_config(isolated_xdg: Path) -> None:
+    from tendril import config as cfg_mod
+
+    cfg = Config(jira=JiraConfig(url="https://x", email="me@x"))
+    cfg_mod.save(cfg)
+    app = TendrilApp(cfg)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.theme = "nord"
+        await pilot.pause()
+
+    assert cfg_mod.load().ui.theme == "nord"
+
+
+@pytest.mark.asyncio
+async def test_theme_from_config_applied_on_mount(isolated_xdg: Path) -> None:
+    from tendril import config as cfg_mod
+    from tendril.config import UIConfig
+
+    cfg_mod.save(
+        Config(jira=JiraConfig(url="https://x", email="me@x"), ui=UIConfig(theme="nord"))
+    )
+    app = TendrilApp(cfg_mod.load())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert app.theme == "nord"

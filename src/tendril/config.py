@@ -69,12 +69,18 @@ class OverviewConfig:
 
 
 @dataclass
+class UIConfig:
+    theme: str | None = None
+
+
+@dataclass
 class Config:
     jira: JiraConfig
     fields: FieldsConfig = field(default_factory=FieldsConfig)
     links: LinksConfig = field(default_factory=LinksConfig)
     sync: SyncConfig = field(default_factory=SyncConfig)
     overview: OverviewConfig = field(default_factory=OverviewConfig)
+    ui: UIConfig = field(default_factory=UIConfig)
 
 
 class ConfigError(Exception):
@@ -105,6 +111,11 @@ def load() -> Config:
     else:
         overview = OverviewConfig()
 
+    ui_raw = raw.get("ui") or {}
+    ui_theme = ui_raw.get("theme")
+    if ui_theme is not None and not isinstance(ui_theme, str):
+        raise ConfigError(f"{path} [ui].theme must be a string.")
+
     return Config(
         jira=JiraConfig(
             url=jira_raw["url"],
@@ -115,6 +126,7 @@ def load() -> Config:
         links=LinksConfig(**(raw.get("links") or {"default_link_type": "Relates"})),
         sync=SyncConfig(**(raw.get("sync") or {"default_jql_extra": ""})),
         overview=overview,
+        ui=UIConfig(theme=ui_theme),
     )
 
 
@@ -138,6 +150,8 @@ def save(cfg: Config) -> Path:
         "sync": {"default_jql_extra": cfg.sync.default_jql_extra},
         "overview": {"done_statuses": list(cfg.overview.done_statuses)},
     }
+    if cfg.ui.theme is not None:
+        payload["ui"] = {"theme": cfg.ui.theme}
     with path.open("wb") as f:
         tomli_w.dump(payload, f)
     return path

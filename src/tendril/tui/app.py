@@ -6,6 +6,7 @@ from textual.app import App
 from textual.binding import Binding
 from textual.worker import Worker
 
+from tendril import config as config_mod
 from tendril.config import Config
 from tendril.db.engine import build_engine, session_factory as make_session_factory
 from tendril.db.schema import init_schema
@@ -36,6 +37,8 @@ class TendrilApp(App):
         self._jira = None  # lazy — do not hit keyring until needed
 
     def on_mount(self) -> None:
+        if self.cfg.ui.theme:
+            self.theme = self.cfg.ui.theme
         self.push_screen(WatchlistScreen())
         # Fire an incremental sync in the background only if we have projects to refresh.
         # Skipping the JIRA client build when there's nothing to do keeps the empty-cache
@@ -154,6 +157,16 @@ class TendrilApp(App):
         reload = getattr(screen, "reload", None)
         if callable(reload):
             reload()
+
+    def watch_theme(self, theme: str) -> None:
+        """Persist theme changes to config so they survive across sessions."""
+        if theme == self.cfg.ui.theme:
+            return
+        self.cfg.ui.theme = theme
+        try:
+            config_mod.save(self.cfg)
+        except OSError as e:
+            self.notify(f"Could not save theme: {e}", severity="warning")
 
     def action_open_search(self) -> None:
         """Global jump-to-issue. Push the picked issue on top of whatever screen is active."""
