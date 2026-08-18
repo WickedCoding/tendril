@@ -6,7 +6,9 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from tendril.config import Config
-from tendril.db.models import Issue, IssueTag, LinkType, ProjectSyncState, WatchlistEntry
+from tendril.db.models import (
+    Issue, IssueSprint, IssueTag, LinkType, ProjectSyncState, Sprint, WatchlistEntry,
+)
 from tendril.jira.fetch import JiraLike, fetch_issue, fetch_link_types, search_by_jql
 from tendril.sync.pipeline import upsert_issue
 
@@ -26,6 +28,10 @@ def _extras_for_cfg(cfg: Config | None) -> list[str]:
     return [f for f in (cfg.fields.sprint, cfg.fields.feature_flags) if f]
 
 
+def _sprint_field(cfg: Config | None) -> str | None:
+    return cfg.fields.sprint if cfg is not None else None
+
+
 def sync_issue(
     client: JiraLike,
     session: Session,
@@ -38,7 +44,11 @@ def sync_issue(
     so the returned key may differ from `key`. When that happens we migrate any
     watchlist entry from the old key to the new one so the watchlist stays live.
     """
-    dto = fetch_issue(client, key, extra_fields=_extras_for_cfg(cfg))
+    dto = fetch_issue(
+        client, key,
+        extra_fields=_extras_for_cfg(cfg),
+        sprint_field_id=_sprint_field(cfg),
+    )
     if dto.key != key:
         _migrate_watchlist_key(session, old=key, new=dto.key)
     row = upsert_issue(session, dto)
@@ -77,7 +87,12 @@ def sync_project(
     """
     now = datetime.now(timezone.utc)
     extras = _extras_for_cfg(cfg)
-    dtos = search_by_jql(client, f'project = "{project_key}"', extra_fields=extras)
+    sprint_id = _sprint_field(cfg)
+    dtos = search_by_jql(
+        client, f'project = "{project_key}"',
+        extra_fields=extras,
+        sprint_field_id=sprint_id,
+    )
     rows = [upsert_issue(session, dto) for dto in dtos]
     _touch_project_state(session, project_key, full=now, incremental=now)
     session.commit()
@@ -100,6 +115,7 @@ def incremental_sync(
 
     now = datetime.now(timezone.utc)
     extras = _extras_for_cfg(cfg)
+    sprint_id = _sprint_field(cfg)
     all_rows: list[Issue] = []
     for state in project_states:
         since_source = state.last_incremental_sync_at or state.last_full_sync_at
@@ -112,7 +128,7 @@ def incremental_sync(
             f'project = "{state.project_key}" '
             f'AND updated >= "{since.strftime("%Y-%m-%d %H:%M")}"'
         )
-        dtos = search_by_jql(client, jql, extra_fields=extras)
+        dtos = search_by_jql(client, jql, extra_fields=extras, sprint_field_id=sprint_id)
         all_rows.extend(upsert_issue(session, dto) for dto in dtos)
         state.last_incremental_sync_at = now
 
@@ -206,6 +222,25 @@ def list_watchlist(session: Session) -> list[tuple[WatchlistEntry, Issue | None]
         issue = session.get(Issue, entry.issue_key)
         result.append((entry, issue))
     return result
+
+
+def list_sprint_issues(session: Session) -> list[tuple[Issue, Sprint]]:
+    """Every cached issue that sits in any active sprint.
+
+    Returns `(issue, sprint)` pairs so callers can render the sprint name as a
+    column. An issue in more than one active sprint yields one row per sprint.
+    """
+    stmt = (
+        select(Issue, Sprint)
+        .join(IssueSprint, IssueSprint.issue_key == Issue.key)
+        .join(Sprint, Sprint.id == IssueSprint.sprint_id)
+        .where(Sprint.state == "active")
+    )
+    rows = list(session.execute(stmt).all())
+    rows.sort(
+        key=lambda r: (r[0].updated is None, -(r[0].updated.timestamp() if r[0].updated else 0))
+    )
+    return [(issue, sprint) for issue, sprint in rows]
 
 
 def list_all_issues(session: Session) -> list[tuple[Issue, bool]]:

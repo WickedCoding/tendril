@@ -2,21 +2,12 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Date, DateTime, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Index, JSON, Date, DateTime, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class Base(DeclarativeBase):
     pass
-
-
-class SyncState(Base):
-    """Singleton row; id is always 1. Holds schema version bookkeeping."""
-
-    __tablename__ = "sync_state"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    schema_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
 
 class ProjectSyncState(Base):
@@ -49,7 +40,6 @@ class Issue(Base):
     created: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     updated: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     duedate: Mapped[date | None] = mapped_column(Date, nullable=True)
-    sprint_name: Mapped[str | None] = mapped_column(String, nullable=True)
     parent_key: Mapped[str | None] = mapped_column(String, nullable=True)
     raw_json: Mapped[dict] = mapped_column(JSON, nullable=False)
     last_synced_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
@@ -108,6 +98,37 @@ class IssueAlert(Base):
 
     issue_key: Mapped[str] = mapped_column(String, primary_key=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class Sprint(Base):
+    """One JIRA sprint. The PK is JIRA's global sprint id.
+
+    State transitions (`future` → `active` → `closed`) happen JIRA-side; every
+    upsert refreshes all mutable fields so the cache tracks the current state.
+    """
+
+    __tablename__ = "sprint"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    state: Mapped[str] = mapped_column(String, nullable=False)
+    board_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    goal: Mapped[str | None] = mapped_column(Text, nullable=True)
+    start_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    end_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    complete_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class IssueSprint(Base):
+    """Join between issue and sprint. Replaced wholesale on each issue upsert."""
+
+    __tablename__ = "issue_sprint"
+    __table_args__ = (
+        Index("ix_issue_sprint_sprint_id", "sprint_id"),
+    )
+
+    issue_key: Mapped[str] = mapped_column(String, primary_key=True)
+    sprint_id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
 
 class LinkType(Base):

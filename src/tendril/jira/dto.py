@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
 from typing import Any
 
@@ -39,6 +40,25 @@ class LinkTypeDTO(BaseModel):
     inward: str
 
 
+class SprintDTO(BaseModel):
+    """One JIRA sprint as it appears on an issue's customfield.
+
+    `state` is `"active"`, `"closed"`, or `"future"` — lowercased on parse so
+    the modern (dict) and legacy (toString) shapes normalize to the same value.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: int
+    name: str
+    state: str
+    board_id: int | None = Field(default=None, alias="boardId")
+    goal: str | None = None
+    start_date: datetime | None = Field(default=None, alias="startDate")
+    end_date: datetime | None = Field(default=None, alias="endDate")
+    complete_date: datetime | None = Field(default=None, alias="completeDate")
+
+
 class IssueDTO(BaseModel):
     key: str
     summary: str | None = None
@@ -50,7 +70,7 @@ class IssueDTO(BaseModel):
     updated: datetime | None = None
     duedate: date | None = None
     parent_key: str | None = None
-    sprint_name: str | None = None
+    sprints: list[SprintDTO] = Field(default_factory=list)
     links: list[LinkDTO] = Field(default_factory=list)
     comments: list[CommentDTO] = Field(default_factory=list)
     raw: dict[str, Any]
@@ -143,6 +163,68 @@ def _parse_links(payload: dict) -> list[LinkDTO]:
     return result
 
 
+# Legacy JIRA (pre-GDPR-migration and some on-prem tenants) returns each sprint
+# as the `toString()` output of a Java object rather than a JSON object. Modern
+# Cloud returns dicts. We accept both.
+_LEGACY_SPRINT_RE = re.compile(r"\[(.*)\]$")
+
+
+def _parse_legacy_sprint(raw: str) -> dict[str, Any] | None:
+    """Parse a `com.atlassian.greenhopper.service.sprint.Sprint@…[k=v,…]` string.
+
+    Returns the k/v pairs as a plain dict (values that are literally `<null>`
+    are dropped). Returns None if the shape isn't recognised so the caller can
+    skip it rather than raise.
+    """
+    m = _LEGACY_SPRINT_RE.search(raw)
+    if m is None:
+        return None
+    result: dict[str, Any] = {}
+    for pair in m.group(1).split(","):
+        if "=" not in pair:
+            continue
+        k, v = pair.split("=", 1)
+        v = v.strip()
+        if v == "<null>" or v == "":
+            continue
+        result[k.strip()] = v
+    if "id" not in result or "name" not in result or "state" not in result:
+        return None
+    return result
+
+
+def _parse_sprints(payload: dict, field_id: str | None) -> list[SprintDTO]:
+    """Extract the configured sprint customfield into `SprintDTO`s.
+
+    No field_id (unconfigured) or field missing/null → empty list. Handles both
+    the modern list-of-dicts and legacy list-of-toString-strings shapes.
+    """
+    if not field_id:
+        return []
+    raw = _get(payload, "fields", field_id, default=None)
+    if not raw:
+        return []
+    out: list[SprintDTO] = []
+    for item in raw:
+        if isinstance(item, dict):
+            data = dict(item)
+        elif isinstance(item, str):
+            parsed = _parse_legacy_sprint(item)
+            if parsed is None:
+                continue
+            data = parsed
+        else:
+            continue
+        state = data.get("state")
+        if isinstance(state, str):
+            data["state"] = state.lower()
+        try:
+            out.append(SprintDTO.model_validate(data))
+        except Exception:
+            continue
+    return out
+
+
 def _parse_comments(payload: dict) -> list[CommentDTO]:
     comments = _get(payload, "fields", "comment", "comments", default=[]) or []
     result: list[CommentDTO] = []
@@ -157,8 +239,12 @@ def _parse_comments(payload: dict) -> list[CommentDTO]:
     return result
 
 
-def normalize_issue(payload: dict) -> IssueDTO:
-    """Turn a raw `Jira.issue()` payload into a flat IssueDTO."""
+def normalize_issue(payload: dict, sprint_field_id: str | None = None) -> IssueDTO:
+    """Turn a raw `Jira.issue()` payload into a flat IssueDTO.
+
+    `sprint_field_id` is the configured customfield id (e.g. `customfield_10020`);
+    when None, sprints stays empty regardless of what the payload carries.
+    """
     fields = payload.get("fields") or {}
     return IssueDTO(
         key=payload["key"],
@@ -171,7 +257,7 @@ def normalize_issue(payload: dict) -> IssueDTO:
         updated=fields.get("updated"),
         duedate=fields.get("duedate"),
         parent_key=_get(fields, "parent", "key"),
-        sprint_name=None,  # populated later via configured sprint customfield id
+        sprints=_parse_sprints(payload, sprint_field_id),
         links=_parse_links(payload),
         comments=_parse_comments(payload),
         raw=payload,

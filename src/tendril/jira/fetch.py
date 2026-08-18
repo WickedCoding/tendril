@@ -47,10 +47,11 @@ def fetch_issue(
     client: JiraLike,
     key: str,
     extra_fields: list[str] | None = None,
+    sprint_field_id: str | None = None,
 ) -> IssueDTO:
     """Fetch a single issue with links and comments, normalized to an IssueDTO."""
     payload = client.issue(key, fields=_compose(ISSUE_FIELDS, extra_fields))
-    return normalize_issue(payload)
+    return normalize_issue(payload, sprint_field_id=sprint_field_id)
 
 
 def _chunks(items: list[str], size: int) -> Iterable[list[str]]:
@@ -62,11 +63,16 @@ def search_by_keys(
     client: JiraLike,
     keys: list[str],
     extra_fields: list[str] | None = None,
+    sprint_field_id: str | None = None,
 ) -> list[IssueDTO]:
     """Fetch many issues by key via JQL, chunking the key list to stay within request limits."""
     out: list[IssueDTO] = []
     for chunk in _chunks(keys, JQL_CHUNK):
-        out.extend(search_by_jql(client, jql_key_in(chunk), extra_fields=extra_fields))
+        out.extend(search_by_jql(
+            client, jql_key_in(chunk),
+            extra_fields=extra_fields,
+            sprint_field_id=sprint_field_id,
+        ))
     return out
 
 
@@ -82,6 +88,7 @@ def search_by_jql(
     client: JiraLike,
     jql: str,
     extra_fields: list[str] | None = None,
+    sprint_field_id: str | None = None,
 ) -> list[IssueDTO]:
     """Run a JQL query and return normalized DTOs, paginating until exhausted.
 
@@ -94,7 +101,7 @@ def search_by_jql(
     while True:
         page = client.enhanced_jql(jql, fields=fields, nextPageToken=token, limit=JQL_CHUNK)
         issues = page.get("issues") or []
-        out.extend(normalize_issue(p) for p in issues)
+        out.extend(normalize_issue(p, sprint_field_id=sprint_field_id) for p in issues)
         if page.get("isLast"):
             break
         token = page.get("nextPageToken")

@@ -1,30 +1,35 @@
 from __future__ import annotations
 
-from sqlalchemy import Engine, select
-from sqlalchemy.orm import Session
+import os
+from pathlib import Path
 
-from tendril.db.models import Base, SyncState
+from alembic import command
+from alembic.config import Config
+from sqlalchemy import Engine
 
-SCHEMA_VERSION = 1
+_MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
+
+
+def _alembic_config() -> Config:
+    cfg = Config()
+    cfg.set_main_option("script_location", str(_MIGRATIONS_DIR))
+    return cfg
 
 
 def init_schema(engine: Engine) -> None:
-    """Create all tables and ensure the singleton SyncState row exists."""
-    Base.metadata.create_all(engine)
-    with Session(engine) as session:
-        row = session.get(SyncState, 1)
-        if row is None:
-            session.add(SyncState(id=1, schema_version=SCHEMA_VERSION))
-            session.commit()
-        elif row.schema_version != SCHEMA_VERSION:
-            raise RuntimeError(
-                f"Local DB is schema version {row.schema_version}, "
-                f"but this build expects {SCHEMA_VERSION}. Migrations not implemented yet."
-            )
+    """Bring the DB up to head by running Alembic migrations.
 
-
-def get_sync_state(session: Session) -> SyncState:
-    row = session.get(SyncState, 1)
-    if row is None:
-        raise RuntimeError("SyncState singleton missing — did init_schema() run?")
-    return row
+    Safe to call on an empty file (applies every migration) and on an already
+    up-to-date DB (no-op). Passes the engine's URL to env.py via TENDRIL_DB_URL
+    so callers only pass an Engine and never touch alembic.ini.
+    """
+    cfg = _alembic_config()
+    prev = os.environ.get("TENDRIL_DB_URL")
+    os.environ["TENDRIL_DB_URL"] = str(engine.url)
+    try:
+        command.upgrade(cfg, "head")
+    finally:
+        if prev is None:
+            os.environ.pop("TENDRIL_DB_URL", None)
+        else:
+            os.environ["TENDRIL_DB_URL"] = prev

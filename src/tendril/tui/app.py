@@ -24,6 +24,7 @@ class TendrilApp(App):
     COMMANDS = App.COMMANDS | {SyncCommands}
     BINDINGS = [
         Binding("/", "open_search", "Search"),
+        Binding("S", "open_sprint_watchlist", "Sprint"),
     ]
 
     def __init__(self, cfg: Config) -> None:
@@ -164,3 +165,7 @@ class TendrilApp(App):
                 self.push_screen(IssueDetailScreen(key))
 
         self.push_screen(SearchModal(), after)
+
+    def action_open_sprint_watchlist(self) -> None:
+        from tendril.tui.screens.sprint_watchlist import SprintWatchlistScreen
+        self.push_screen(SprintWatchlistScreen())

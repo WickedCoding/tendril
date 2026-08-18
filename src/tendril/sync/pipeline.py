@@ -5,8 +5,8 @@ from datetime import datetime, timezone
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
-from tendril.db.models import Comment, Issue, IssueLink, User
-from tendril.jira.dto import IssueDTO, UserDTO
+from tendril.db.models import Comment, Issue, IssueLink, IssueSprint, Sprint, User
+from tendril.jira.dto import IssueDTO, SprintDTO, UserDTO
 
 
 def _upsert_user(session: Session, dto: UserDTO | None) -> str | None:
@@ -46,11 +46,11 @@ def upsert_issue(session: Session, dto: IssueDTO) -> Issue:
     row.updated = dto.updated
     row.duedate = dto.duedate
     row.parent_key = dto.parent_key
-    row.sprint_name = dto.sprint_name
     row.raw_json = dto.raw
     row.last_synced_at = datetime.now(timezone.utc)
 
     _replace_links(session, dto)
+    _replace_sprints(session, dto)
     _upsert_comments(session, dto)
     return row
 
@@ -70,6 +70,44 @@ def _replace_links(session: Session, dto: IssueDTO) -> None:
             direction=link.direction,
             jira_link_id=link.jira_link_id,
         ))
+
+
+def _upsert_sprint(session: Session, sprint: SprintDTO) -> None:
+    """Insert or refresh one Sprint row. State/dates change JIRA-side over time."""
+    existing = session.get(Sprint, sprint.id)
+    if existing is None:
+        session.add(Sprint(
+            id=sprint.id,
+            name=sprint.name,
+            state=sprint.state,
+            board_id=sprint.board_id,
+            goal=sprint.goal,
+            start_date=sprint.start_date,
+            end_date=sprint.end_date,
+            complete_date=sprint.complete_date,
+        ))
+        return
+    existing.name = sprint.name
+    existing.state = sprint.state
+    existing.board_id = sprint.board_id
+    existing.goal = sprint.goal
+    existing.start_date = sprint.start_date
+    existing.end_date = sprint.end_date
+    existing.complete_date = sprint.complete_date
+
+
+def _replace_sprints(session: Session, dto: IssueDTO) -> None:
+    """Refresh sprint metadata rows and replace the issue's join rows wholesale.
+
+    Mirrors _replace_links: JIRA's customfield payload is the current truth,
+    so diffing an issue's sprints is unsafe. Sprint rows themselves are upserted
+    (many issues share them) so state changes propagate.
+    """
+    for sprint in dto.sprints:
+        _upsert_sprint(session, sprint)
+    session.execute(delete(IssueSprint).where(IssueSprint.issue_key == dto.key))
+    for sprint in dto.sprints:
+        session.add(IssueSprint(issue_key=dto.key, sprint_id=sprint.id))
 
 
 def _upsert_comments(session: Session, dto: IssueDTO) -> None:

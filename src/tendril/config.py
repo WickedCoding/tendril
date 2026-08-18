@@ -33,6 +33,7 @@ def data_dir() -> Path:
 class JiraConfig:
     url: str
     email: str
+    account_id: str | None = None
 
 
 @dataclass
@@ -105,7 +106,11 @@ def load() -> Config:
         overview = OverviewConfig()
 
     return Config(
-        jira=JiraConfig(url=jira_raw["url"], email=jira_raw["email"]),
+        jira=JiraConfig(
+            url=jira_raw["url"],
+            email=jira_raw["email"],
+            account_id=jira_raw.get("account_id"),
+        ),
         fields=FieldsConfig(**(raw.get("fields") or {})),
         links=LinksConfig(**(raw.get("links") or {"default_link_type": "Relates"})),
         sync=SyncConfig(**(raw.get("sync") or {"default_jql_extra": ""})),
@@ -116,8 +121,11 @@ def load() -> Config:
 def save(cfg: Config) -> Path:
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
+    jira_payload = {"url": cfg.jira.url, "email": cfg.jira.email}
+    if cfg.jira.account_id is not None:
+        jira_payload["account_id"] = cfg.jira.account_id
     payload = {
-        "jira": {"url": cfg.jira.url, "email": cfg.jira.email},
+        "jira": jira_payload,
         "fields": {
             k: v
             for k, v in {

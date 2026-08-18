@@ -116,8 +116,13 @@ def whoami() -> None:
         err_console.print(f"[red]JIRA request failed:[/red] {e}")
         raise typer.Exit(2)
 
+    account_id = me.get("accountId")
+    if account_id and cfg.jira.account_id != account_id:
+        cfg.jira.account_id = account_id
+        cfg_mod.save(cfg)
+
     console.print(f"[green]{me.get('displayName', '?')}[/green] <{me.get('emailAddress', '?')}>")
-    console.print(f"accountId: {me.get('accountId', '?')}")
+    console.print(f"accountId: {account_id or '?'}")
     console.print(f"timezone:  {me.get('timeZone', '?')}")
 
 

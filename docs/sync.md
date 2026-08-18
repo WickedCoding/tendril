@@ -58,4 +58,4 @@ Verifies auth by fetching your own JIRA profile.
 uv run tendril whoami
 ```
 
-Use it after `config init` or after rotating the API token, to confirm tendril can reach JIRA before you kick off a large project sync.
+Use it after `config init` or after rotating the API token, to confirm tendril can reach JIRA before you kick off a large project sync. `whoami` also persists your `accountId` into `~/.config/tendril/config.toml`.

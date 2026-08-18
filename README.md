@@ -43,7 +43,7 @@ Run with no subcommand:
 tendril
 ```
 
-Two screens plus a global search.
+Three screens plus a global search.
 
 **Overview** — a table of every cached issue, with a `★` column marking watchlisted rows.
 
@@ -74,12 +74,22 @@ Two screens plus a global search.
 | ↵   | (on a surface card) open the link modal       |
 | esc | back                                          |
 
+**Sprint watchlist** — every cached issue that sits in an active sprint. Populated dynamically from the cache; no manual add. Needs `[fields].sprint = "customfield_XXXXX"` in `config.toml` so the sync layer pulls the sprint customfield.
+
+| key | binding                                    |
+|-----|--------------------------------------------|
+| s   | run incremental sync                       |
+| r   | reload from cache                          |
+| ↵   | open issue detail                          |
+| esc | back to the previous screen                |
+
 **Global** — works from any screen:
 
-| key    | binding                                                |
-|--------|--------------------------------------------------------|
-| /      | search cached issues by key, tag, or summary (`#tag` narrows to tags only) |
-| ctrl+p | command palette (`Sync project…` + one per synced project) |
+| key     | binding                                                |
+|---------|--------------------------------------------------------|
+| /       | search cached issues by key, tag, or summary (`#tag` narrows to tags only) |
+| shift+s | open the sprint watchlist                              |
+| ctrl+p  | command palette (`Sync project…` + one per synced project) |
 
 ## Tags and alerts
 
@@ -109,7 +119,7 @@ The field is assumed to be a JIRA labels-type custom field (payload shape `["fla
 - **Every write refetches the touched issue.** No local mutation bypasses JIRA — the cache stays honest. Tags and alerts are local-only and never touch JIRA.
 - **Whole-project sync only.** Per-issue single fetches exist (`sync issue KEY`) but are a fallback; the intended workflow is `sync project KEY` once, then `sync incremental` from there.
 - **JIRA rename resilience.** If JIRA has moved an issue to another project, `sync issue OLDKEY` follows the redirect, cache is upserted under the new key, and any watchlist entry for the old key is migrated.
-- **No Alembic yet.** `Base.metadata.create_all()` plus a `schema_version` row carries us here. Alembic joins when the first breaking schema change lands.
+- **Alembic runs on startup.** `init_schema` calls `alembic upgrade head` against the SQLite cache; every schema change is a migration in `src/tendril/migrations/versions/`.
 
 ## Contributing
 

@@ -37,7 +37,7 @@ email = "you@example.com"
 
 [fields]
 feature_flags = "customfield_10457"    # enables the `f` binding in the TUI
-sprint = "customfield_10020"
+sprint = "customfield_10020"           # enables the sprint watchlist (Shift+S in the TUI)
 
 [links]
 default_link_type = "Relates"          # default JIRA link type for `l`
