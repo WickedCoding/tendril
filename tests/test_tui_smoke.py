@@ -366,6 +366,154 @@ async def test_toggle_alert_binding_flips_marker(
 
 
 @pytest.mark.asyncio
+async def test_mine_filter_hides_rows_not_assigned_to_me_on_watchlist(
+    isolated_xdg: Path, load_fixture
+) -> None:
+    """`m` narrows the overview to issues whose assignee matches `cfg.jira.account_id`.
+
+    PROJ-1 is assigned to `acc-alice` in the fixture; PROJ-2 has a null assignee.
+    """
+    _seed(load_fixture)
+
+    app = TendrilApp(
+        Config(jira=JiraConfig(url="https://x", email="me@x", account_id="acc-alice"))
+    )
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        from textual.widgets import DataTable
+        table = app.screen.query_one(DataTable)
+        assert table.row_count == 2
+
+        await pilot.press("m")
+        await pilot.pause()
+        assert table.row_count == 1
+        assert str(next(iter(table.rows.keys())).value) == "PROJ-1"
+
+        await pilot.press("m")
+        await pilot.pause()
+        assert table.row_count == 2
+
+
+@pytest.mark.asyncio
+async def test_mine_filter_noop_without_account_id_on_watchlist(
+    isolated_xdg: Path, load_fixture
+) -> None:
+    """Without `cfg.jira.account_id`, pressing `m` shows every row and hints at whoami."""
+    _seed(load_fixture)
+
+    app = TendrilApp(Config(jira=JiraConfig(url="https://x", email="me@x")))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        from textual.widgets import DataTable, Static
+        table = app.screen.query_one(DataTable)
+        assert table.row_count == 2
+
+        await pilot.press("m")
+        await pilot.pause()
+        assert table.row_count == 2
+        status = app.screen.query_one("#status-line", Static)
+        assert "whoami" in str(status.render())
+
+
+@pytest.mark.asyncio
+async def test_mine_filter_hides_rows_not_assigned_to_me_on_sprint_watchlist(
+    isolated_xdg: Path, load_fixture
+) -> None:
+    """`Shift+S` → sprint watchlist, `m` narrows the active-sprint list to my rows."""
+    _seed(load_fixture)
+
+    engine = build_engine()
+    init_schema(engine)
+    from tendril.db.models import IssueSprint, Sprint
+    with session_factory(engine)() as s:
+        s.add(Sprint(id=42, name="Sprint 42", state="active"))
+        s.add(IssueSprint(issue_key="PROJ-1", sprint_id=42))
+        s.add(IssueSprint(issue_key="PROJ-2", sprint_id=42))
+        s.commit()
+
+    app = TendrilApp(
+        Config(jira=JiraConfig(url="https://x", email="me@x", account_id="acc-alice"))
+    )
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("S")
+        await pilot.pause()
+
+        from tendril.tui.screens.sprint_watchlist import SprintWatchlistScreen
+        assert isinstance(app.screen, SprintWatchlistScreen)
+        table = app.screen.query_one("#sprint-table")
+        assert table.row_count == 2
+
+        await pilot.press("m")
+        await pilot.pause()
+        assert table.row_count == 1
+        assert str(next(iter(table.rows.keys())).value).startswith("PROJ-1:")
+
+        await pilot.press("m")
+        await pilot.pause()
+        assert table.row_count == 2
+
+
+@pytest.mark.asyncio
+async def test_mine_filter_hides_child_rows_in_issue_detail_links(
+    isolated_xdg: Path, load_fixture
+) -> None:
+    """On the Links tab, `m` hides child rows whose assignee doesn't match me."""
+    _seed(load_fixture)
+
+    engine = build_engine()
+    init_schema(engine)
+    from tendril.db.models import Issue
+    with session_factory(engine)() as s:
+        # Reparent PROJ-1 (assignee acc-alice) under PROJ-2 (assignee null).
+        proj1 = s.get(Issue, "PROJ-1")
+        assert proj1 is not None
+        proj1.parent_key = "PROJ-2"
+        # A second, no-fixture child assigned to somebody else.
+        from datetime import UTC, datetime
+        s.add(
+            Issue(
+                key="PROJ-99",
+                summary="stranger",
+                status="Open",
+                assignee_account_id="acc-bob",
+                parent_key="PROJ-2",
+                raw_json={},
+                last_synced_at=datetime.now(UTC),
+            )
+        )
+        s.commit()
+
+    app = TendrilApp(
+        Config(jira=JiraConfig(url="https://x", email="me@x", account_id="acc-alice"))
+    )
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        from textual.widgets import DataTable, TabbedContent
+        table = app.screen.query_one(DataTable)
+        _cursor_to_key(table, "PROJ-2")
+        await pilot.press("enter")
+        await pilot.pause()
+
+        from tendril.tui.screens.issue_detail import IssueDetailScreen
+        assert isinstance(app.screen, IssueDetailScreen)
+
+        tabs = app.screen.query_one(TabbedContent)
+        tabs.active = "tab-links"
+        await pilot.pause()
+
+        links = app.screen.query_one("#links-table", DataTable)
+        row_keys = {str(k.value) for k in links.rows.keys()}
+        assert "child:PROJ-1" in row_keys
+        assert "child:PROJ-99" in row_keys
+
+        await pilot.press("m")
+        await pilot.pause()
+        row_keys = {str(k.value) for k in links.rows.keys()}
+        assert row_keys == {"child:PROJ-1"}
+
+
+@pytest.mark.asyncio
 async def test_palette_lists_sync_commands(isolated_xdg: Path) -> None:
     """Command-palette provider yields the prompt entry plus one per synced project.
 

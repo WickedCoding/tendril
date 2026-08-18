@@ -24,6 +24,7 @@ class WatchlistScreen(Screen):
         Binding("d", "remove", "Remove"),
         Binding("w", "toggle_watchlist_filter", "Watchlist only"),
         Binding("o", "toggle_open_filter", "Open only"),
+        Binding("m", "toggle_mine_filter", "Mine"),
         Binding("s", "sync", "Sync incremental"),
         Binding("r", "refresh", "Reload"),
         Binding("q", "quit_app", "Quit"),
@@ -33,6 +34,7 @@ class WatchlistScreen(Screen):
         super().__init__()
         self._watchlist_only = False
         self._open_only = False
+        self._mine_only = False
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -59,6 +61,8 @@ class WatchlistScreen(Screen):
         table.clear()
         accent = self._accent_style()
         done = self._done_statuses()
+        me = self._me()
+        mine_active = self._mine_only and me is not None
 
         shown = 0
         total = 0
@@ -69,6 +73,8 @@ class WatchlistScreen(Screen):
                 if self._watchlist_only and not is_watchlisted:
                     continue
                 if self._open_only and (issue.status or "") in done:
+                    continue
+                if mine_active and issue.assignee_account_id != me:
                     continue
 
                 style = accent if is_watchlisted else Style()
@@ -95,10 +101,18 @@ class WatchlistScreen(Screen):
             filters.append("watchlist")
         if self._open_only:
             filters.append("open")
+        if self._mine_only and self._me() is not None:
+            filters.append("mine")
         suffix = f" · filters: {', '.join(filters)}" if filters else ""
+        if self._mine_only and self._me() is None:
+            suffix += ' · run `tendril whoami` to enable "mine"'
         if shown == total:
             return f"{plural(total, 'cached issue')}.{suffix}"
         return f"showing {shown} of {plural(total, 'cached issue')}.{suffix}"
+
+    def _me(self) -> str | None:
+        cfg = getattr(self.app, "cfg", None)
+        return getattr(getattr(cfg, "jira", None), "account_id", None)
 
     def _accent_style(self) -> Style:
         """Bold + the theme's accent color, so watchlisted rows pop in both themes."""
@@ -156,6 +170,10 @@ class WatchlistScreen(Screen):
 
     def action_toggle_open_filter(self) -> None:
         self._open_only = not self._open_only
+        self.reload()
+
+    def action_toggle_mine_filter(self) -> None:
+        self._mine_only = not self._mine_only
         self.reload()
 
     def action_sync(self) -> None:

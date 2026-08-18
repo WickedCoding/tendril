@@ -19,9 +19,14 @@ class SprintWatchlistScreen(Screen):
     BINDINGS = [
         Binding("s", "sync", "Sync incremental"),
         Binding("r", "refresh", "Reload"),
+        Binding("m", "toggle_mine_filter", "Mine"),
         Binding("escape", "pop", "Back"),
         Binding("q", "pop", "Back"),
     ]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._mine_only = False
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -45,10 +50,15 @@ class SprintWatchlistScreen(Screen):
     def reload(self) -> None:
         table = self.query_one(DataTable)
         table.clear()
+        me = self._me()
+        mine_active = self._mine_only and me is not None
 
+        shown = 0
         with self.app.session_factory() as session:  # type: ignore[attr-defined]
             pairs = list_sprint_issues(session)
             for issue, sprint in pairs:
+                if mine_active and issue.assignee_account_id != me:
+                    continue
                 updated = (
                     issue.updated.strftime("%Y-%m-%d %H:%M") if issue.updated else "—"
                 )
@@ -60,14 +70,31 @@ class SprintWatchlistScreen(Screen):
                     Text(updated),
                     key=f"{issue.key}:{sprint.id}",
                 )
+                shown += 1
 
+        total = len(pairs)
         if not pairs:
             self._set_status(
                 "No issues in an active sprint yet — run `tendril sync project KEY` first, "
                 "and make sure `[fields].sprint` is set in config.toml."
             )
         else:
-            self._set_status(f"{plural(len(pairs), 'issue')} in an active sprint.")
+            self._set_status(self._status_text(shown, total))
+
+    def _status_text(self, shown: int, total: int) -> str:
+        filters = []
+        if self._mine_only and self._me() is not None:
+            filters.append("mine")
+        suffix = f" · filters: {', '.join(filters)}" if filters else ""
+        if self._mine_only and self._me() is None:
+            suffix += ' · run `tendril whoami` to enable "mine"'
+        if shown == total:
+            return f"{plural(total, 'issue')} in an active sprint.{suffix}"
+        return f"showing {shown} of {plural(total, 'issue')} in an active sprint.{suffix}"
+
+    def _me(self) -> str | None:
+        cfg = getattr(self.app, "cfg", None)
+        return getattr(getattr(cfg, "jira", None), "account_id", None)
 
     def _set_status(self, text: str) -> None:
         self.query_one("#status-line", Static).update(text)
@@ -83,6 +110,10 @@ class SprintWatchlistScreen(Screen):
         self.app.run_incremental_sync()  # type: ignore[attr-defined]
 
     def action_refresh(self) -> None:
+        self.reload()
+
+    def action_toggle_mine_filter(self) -> None:
+        self._mine_only = not self._mine_only
         self.reload()
 
     def action_pop(self) -> None:

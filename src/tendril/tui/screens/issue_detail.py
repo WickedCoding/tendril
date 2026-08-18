@@ -41,6 +41,7 @@ class IssueDetailScreen(Screen):
         Binding("t", "edit_tags", "Tags"),
         Binding("A", "toggle_alert", "Alert on/off"),
         Binding("s", "focus_surfaces", "Surfaces"),
+        Binding("m", "toggle_mine_filter", "Mine (links)"),
         Binding("p", "open_parent", "Parent"),
         Binding("escape", "app.pop_screen", "Back"),
         Binding("q", "app.pop_screen", "Back"),
@@ -67,6 +68,7 @@ class IssueDetailScreen(Screen):
         self.issue_key = issue_key
         self._parent_key: str | None = None
         self._surfaces: list[tuple[Issue, list[str]]] = []
+        self._mine_only = False
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -154,12 +156,17 @@ class IssueDetailScreen(Screen):
             ).all()
 
             target_keys = {link.target_key for link in links}
-            summaries: dict[str, tuple[str | None, str | None]] = {}
+            summaries: dict[str, tuple[str | None, str | None, str | None]] = {}
             if target_keys:
-                for key, status, summary in session.execute(
-                    select(Issue.key, Issue.status, Issue.summary).where(Issue.key.in_(target_keys))
+                for key, status, summary, assignee in session.execute(
+                    select(
+                        Issue.key,
+                        Issue.status,
+                        Issue.summary,
+                        Issue.assignee_account_id,
+                    ).where(Issue.key.in_(target_keys))
                 ):
-                    summaries[key] = (summary, status)
+                    summaries[key] = (summary, status, assignee)
 
             link_type_phrases = {
                 lt.name: (lt.outward, lt.inward)
@@ -169,7 +176,15 @@ class IssueDetailScreen(Screen):
             table = self.query_one("#links-table", DataTable)
             table.clear()
 
+            me = self._me()
+            mine_active = self._mine_only and me is not None
+
             for link in links:
+                if mine_active:
+                    entry = summaries.get(link.target_key)
+                    # Uncached target: we can't know its assignee; hide when filtering to mine.
+                    if entry is None or entry[2] != me:
+                        continue
                 table.add_row(
                     _linked_item_cell(link.link_type, link.direction, link.target_key, link_type_phrases),
                     _title_cell(link.target_key, summaries),
@@ -177,6 +192,8 @@ class IssueDetailScreen(Screen):
                     key=f"link:{link.id}",
                 )
             for child in children:
+                if mine_active and child.assignee_account_id != me:
+                    continue
                 table.add_row(
                     f"contains {child.key}",
                     child.summary or "[dim]—[/dim]",
@@ -327,6 +344,23 @@ class IssueDetailScreen(Screen):
         if option_list.display:
             option_list.focus()
 
+    def action_toggle_mine_filter(self) -> None:
+        if not self._mine_only and self._me() is None:
+            self.app.notify(
+                'Run `tendril whoami` first to enable "mine" filter.',
+                severity="warning",
+            )
+            return
+        self._mine_only = not self._mine_only
+        self.app.notify(
+            f'Links filter: mine {"on" if self._mine_only else "off"}'
+        )
+        self.reload()
+
+    def _me(self) -> str | None:
+        cfg = getattr(self.app, "cfg", None)
+        return getattr(getattr(cfg, "jira", None), "account_id", None)
+
     def check_action(self, action: str, parameters: tuple) -> bool | None:
         if action == "open_parent":
             return bool(self._parent_key)
@@ -449,12 +483,12 @@ def _linked_item_cell(
     return f"{phrase} {target_key}"
 
 
-def _title_cell(target_key: str, summaries: dict[str, tuple[str | None, str | None]]) -> str:
+def _title_cell(target_key: str, summaries: dict[str, tuple[str | None, str | None, str | None]]) -> str:
     if target_key not in summaries:
         return "[dim]not synced[/dim]"
     return summaries[target_key][0] or "[dim]—[/dim]"
 
-def _status_cell(target_key: str, summaries: dict[str, tuple[str | None, str | None]]) -> str:
+def _status_cell(target_key: str, summaries: dict[str, tuple[str | None, str | None, str | None]]) -> str:
     if target_key not in summaries:
         return "[dim]not synced[/dim]"
     return summaries[target_key][1] or "[dim]—[/dim]"
