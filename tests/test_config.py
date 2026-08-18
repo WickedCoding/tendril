@@ -5,7 +5,15 @@ from pathlib import Path
 import pytest
 
 from tendril import config as cfg_mod
-from tendril.config import Config, ConfigError, FieldsConfig, JiraConfig, LinksConfig, SyncConfig
+from tendril.config import (
+    Config,
+    ConfigError,
+    FieldsConfig,
+    JiraConfig,
+    LinksConfig,
+    OverviewConfig,
+    SyncConfig,
+)
 
 
 def test_paths_honour_xdg(isolated_xdg: Path) -> None:
@@ -73,3 +81,36 @@ def test_save_omits_none_field_ids(isolated_xdg: Path) -> None:
     contents = cfg_mod.config_path().read_text()
     assert "feature_flags" not in contents
     assert "sprint" not in contents
+
+
+def test_overview_done_statuses_roundtrip(isolated_xdg: Path) -> None:
+    original = Config(
+        jira=JiraConfig(url="https://acme.atlassian.net", email="me@example.com"),
+        overview=OverviewConfig(done_statuses=["Done", "Won't Fix"]),
+    )
+    cfg_mod.save(original)
+    loaded = cfg_mod.load()
+    assert loaded.overview.done_statuses == ["Done", "Won't Fix"]
+
+
+def test_overview_defaults_when_section_absent(isolated_xdg: Path) -> None:
+    cfg_mod.save(Config(jira=JiraConfig(url="https://x", email="me@x")))
+    # Rewrite without the [overview] section to simulate an older config.
+    path = cfg_mod.config_path()
+    path.write_text(
+        '[jira]\nurl = "https://x"\nemail = "me@x"\n'
+    )
+    loaded = cfg_mod.load()
+    assert "Closed" in loaded.overview.done_statuses
+    assert "Deployed to Prod" in loaded.overview.done_statuses
+
+
+def test_overview_rejects_non_string_statuses(isolated_xdg: Path) -> None:
+    path = cfg_mod.config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        '[jira]\nurl = "https://x"\nemail = "me@x"\n'
+        "[overview]\ndone_statuses = [1, 2]\n"
+    )
+    with pytest.raises(ConfigError, match="done_statuses"):
+        cfg_mod.load()

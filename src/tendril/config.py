@@ -51,12 +51,29 @@ class SyncConfig:
     default_jql_extra: str = ""
 
 
+DEFAULT_DONE_STATUSES: tuple[str, ...] = (
+    "Ready for Acc",
+    "Ready for Prod",
+    "Closed",
+    "Deployed to Acc",
+    "Deployed to Prod",
+)
+
+
+@dataclass
+class OverviewConfig:
+    done_statuses: list[str] = field(
+        default_factory=lambda: list(DEFAULT_DONE_STATUSES)
+    )
+
+
 @dataclass
 class Config:
     jira: JiraConfig
     fields: FieldsConfig = field(default_factory=FieldsConfig)
     links: LinksConfig = field(default_factory=LinksConfig)
     sync: SyncConfig = field(default_factory=SyncConfig)
+    overview: OverviewConfig = field(default_factory=OverviewConfig)
 
 
 class ConfigError(Exception):
@@ -76,11 +93,23 @@ def load() -> Config:
     if "url" not in jira_raw or "email" not in jira_raw:
         raise ConfigError(f"{path} is missing [jira].url or [jira].email")
 
+    overview_raw = raw.get("overview") or {}
+    if "done_statuses" in overview_raw:
+        done = overview_raw["done_statuses"]
+        if not isinstance(done, list) or not all(isinstance(s, str) for s in done):
+            raise ConfigError(
+                f"{path} [overview].done_statuses must be a list of strings."
+            )
+        overview = OverviewConfig(done_statuses=list(done))
+    else:
+        overview = OverviewConfig()
+
     return Config(
         jira=JiraConfig(url=jira_raw["url"], email=jira_raw["email"]),
         fields=FieldsConfig(**(raw.get("fields") or {})),
         links=LinksConfig(**(raw.get("links") or {"default_link_type": "Relates"})),
         sync=SyncConfig(**(raw.get("sync") or {"default_jql_extra": ""})),
+        overview=overview,
     )
 
 
@@ -99,6 +128,7 @@ def save(cfg: Config) -> Path:
         },
         "links": {"default_link_type": cfg.links.default_link_type},
         "sync": {"default_jql_extra": cfg.sync.default_jql_extra},
+        "overview": {"done_statuses": list(cfg.overview.done_statuses)},
     }
     with path.open("wb") as f:
         tomli_w.dump(payload, f)

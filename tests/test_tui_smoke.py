@@ -23,7 +23,7 @@ def _seed(load_fixture) -> None:
 
 
 @pytest.mark.asyncio
-async def test_watchlist_renders_seeded_entries(isolated_xdg: Path, load_fixture) -> None:
+async def test_overview_renders_every_cached_issue(isolated_xdg: Path, load_fixture) -> None:
     _seed(load_fixture)
     app = TendrilApp(Config(jira=JiraConfig(url="https://x", email="me@x")))
     async with app.run_test() as pilot:
@@ -43,7 +43,7 @@ async def test_open_issue_detail_and_back(isolated_xdg: Path, load_fixture) -> N
         await pilot.pause()
         from textual.widgets import DataTable
         table = app.screen.query_one(DataTable)
-        table.move_cursor(row=0)
+        _cursor_to_key(table, "PROJ-1")
         await pilot.press("enter")
         await pilot.pause()
         from tendril.tui.screens.issue_detail import IssueDetailScreen
@@ -56,18 +56,97 @@ async def test_open_issue_detail_and_back(isolated_xdg: Path, load_fixture) -> N
         assert isinstance(app.screen, WatchlistScreen)
 
 
+def _cursor_to_key(table, key: str) -> None:
+    """Move a DataTable's cursor onto the row with the given row-key."""
+    for i, k in enumerate(table.rows.keys()):
+        if str(k.value) == key:
+            table.move_cursor(row=i)
+            return
+    raise AssertionError(f"row {key} not found in table")
+
+
 @pytest.mark.asyncio
 async def test_remove_from_watchlist_via_keybinding(isolated_xdg: Path, load_fixture) -> None:
+    """Pressing `d` drops the watchlist marker; the cached row itself stays."""
     _seed(load_fixture)
     app = TendrilApp(Config(jira=JiraConfig(url="https://x", email="me@x")))
     async with app.run_test() as pilot:
         await pilot.pause()
         from textual.widgets import DataTable
         table = app.screen.query_one(DataTable)
-        table.move_cursor(row=0)
+        _cursor_to_key(table, "PROJ-1")
+        removed_key = "PROJ-1"
+
         await pilot.press("d")
         await pilot.pause()
+
+        # Row stays — this is the overview, not a filtered watchlist view.
+        assert table.row_count == 2
+        # But the watchlist entry is gone.
+        from tendril.db.models import WatchlistEntry
+        with app.session_factory() as session:
+            assert session.get(WatchlistEntry, removed_key) is None
+
+
+@pytest.mark.asyncio
+async def test_watchlist_filter_hides_non_watchlisted_rows(
+    isolated_xdg: Path, load_fixture
+) -> None:
+    """Only PROJ-1 is on the watchlist; toggling `w` should hide PROJ-2."""
+    engine = build_engine()
+    init_schema(engine)
+    with session_factory(engine)() as session:
+        from tendril.jira.dto import normalize_issue
+        upsert_issue(session, normalize_issue(load_fixture("issue_sample.json")))
+        upsert_issue(session, normalize_issue(load_fixture("issue_second.json")))
+        add_to_watchlist(session, ["PROJ-1"])
+
+    app = TendrilApp(Config(jira=JiraConfig(url="https://x", email="me@x")))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        from textual.widgets import DataTable
+        table = app.screen.query_one(DataTable)
+        assert table.row_count == 2
+
+        await pilot.press("w")
+        await pilot.pause()
         assert table.row_count == 1
+        assert str(next(iter(table.rows.keys())).value) == "PROJ-1"
+
+        await pilot.press("w")
+        await pilot.pause()
+        assert table.row_count == 2
+
+
+@pytest.mark.asyncio
+async def test_open_filter_hides_done_statuses(
+    isolated_xdg: Path, load_fixture
+) -> None:
+    """`o` hides issues whose status is in the configured done_statuses list."""
+    engine = build_engine()
+    init_schema(engine)
+    with session_factory(engine)() as session:
+        from tendril.db.models import Issue
+        from tendril.jira.dto import normalize_issue
+        upsert_issue(session, normalize_issue(load_fixture("issue_sample.json")))
+        upsert_issue(session, normalize_issue(load_fixture("issue_second.json")))
+        # Force PROJ-2 into a done state so the filter can bite.
+        proj2 = session.get(Issue, "PROJ-2")
+        assert proj2 is not None
+        proj2.status = "Closed"
+        session.commit()
+
+    app = TendrilApp(Config(jira=JiraConfig(url="https://x", email="me@x")))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        from textual.widgets import DataTable
+        table = app.screen.query_one(DataTable)
+        assert table.row_count == 2
+
+        await pilot.press("o")
+        await pilot.pause()
+        assert table.row_count == 1
+        assert str(next(iter(table.rows.keys())).value) == "PROJ-1"
 
 
 @pytest.mark.asyncio
@@ -185,7 +264,7 @@ async def test_surfaces_panel_shows_empty_state_without_matches(
         await pilot.pause()
         from textual.widgets import DataTable, OptionList, Static
         table = app.screen.query_one(DataTable)
-        table.move_cursor(row=0)
+        _cursor_to_key(table, "PROJ-1")
         await pilot.press("enter")
         await pilot.pause()
 
@@ -207,7 +286,7 @@ async def test_toggle_alert_binding_flips_marker(
         await pilot.pause()
         from textual.widgets import DataTable
         table = app.screen.query_one(DataTable)
-        table.move_cursor(row=0)
+        _cursor_to_key(table, "PROJ-1")
         await pilot.press("enter")
         await pilot.pause()
 

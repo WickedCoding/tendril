@@ -192,3 +192,17 @@ def list_watchlist(session: Session) -> list[tuple[WatchlistEntry, Issue | None]
         issue = session.get(Issue, entry.issue_key)
         result.append((entry, issue))
     return result
+
+
+def list_all_issues(session: Session) -> list[tuple[Issue, bool]]:
+    """Return every cached issue paired with a watchlisted flag, newest updated first.
+
+    Issues with no `updated` timestamp sort to the end so a stale/broken row
+    doesn't push the freshest work off the top.
+    """
+    issues = list(session.scalars(select(Issue)).all())
+    watchlisted = {
+        key for (key,) in session.execute(select(WatchlistEntry.issue_key)).all()
+    }
+    issues.sort(key=lambda i: (i.updated is None, -(i.updated.timestamp() if i.updated else 0)))
+    return [(issue, issue.key in watchlisted) for issue in issues]
