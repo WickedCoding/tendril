@@ -6,6 +6,7 @@ from textual.binding import Binding
 from textual.screen import Screen
 from textual.widgets import DataTable, Footer, Header, Static
 
+from tendril.db.users import format_user, resolve_display_names
 from tendril.sync.commands import list_sprint_issues
 from tendril.text import plural
 
@@ -38,14 +39,15 @@ class SprintWatchlistScreen(Screen):
         table = self.query_one(DataTable)
         table.add_column("key", width=15)
         table.add_column("status", width=20)
-        table.add_column("summary", width=self.size.width - 100, key="summary")
+        table.add_column("summary", width=self.size.width - 120, key="summary")
+        table.add_column("assignee", width=20)
         table.add_column("sprint", width=25)
         table.add_column("updated", width=20)
         self.reload()
 
     def on_resize(self) -> None:
         table = self.query_one(DataTable)
-        table.columns["summary"].width = self.size.width - 100
+        table.columns["summary"].width = self.size.width - 120
 
     def reload(self) -> None:
         table = self.query_one(DataTable)
@@ -56,6 +58,9 @@ class SprintWatchlistScreen(Screen):
         shown = 0
         with self.app.session_factory() as session:  # type: ignore[attr-defined]
             pairs = list_sprint_issues(session)
+            names = resolve_display_names(
+                session, (issue.assignee_account_id for issue, _ in pairs)
+            )
             for issue, sprint in pairs:
                 if mine_active and issue.assignee_account_id != me:
                     continue
@@ -66,6 +71,7 @@ class SprintWatchlistScreen(Screen):
                     Text(issue.key),
                     Text(issue.status or "—"),
                     Text((issue.summary or "").strip() or "—"),
+                    Text(format_user(issue.assignee_account_id, names)),
                     Text(sprint.name),
                     Text(updated),
                     key=f"{issue.key}:{sprint.id}",
