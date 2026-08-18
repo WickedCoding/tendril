@@ -42,8 +42,17 @@ class WatchlistScreen(Screen):
 
     def on_mount(self) -> None:
         table = self.query_one(DataTable)
-        table.add_columns("★", "key", "status", "summary", "assignee", "updated")
+        table.add_column("★", width=1)
+        table.add_column("key", width=15)
+        table.add_column("status", width=20)
+        table.add_column("summary", width=self.size.width - 100, key="summary")
+        table.add_column("assignee", width=20)
+        table.add_column("updated", width=20)
         self.reload()
+
+    def on_resize(self) -> None:
+        table = self.query_one(DataTable)
+        table.columns["summary"].width = self.size.width - 100
 
     def reload(self) -> None:
         table = self.query_one(DataTable)
