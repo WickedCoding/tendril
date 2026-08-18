@@ -11,6 +11,7 @@ from tendril.sync.commands import (
     incremental_sync,
     list_watchlist,
     remove_from_watchlist,
+    search_issues,
     sync_project,
 )
 
@@ -151,6 +152,55 @@ def test_sync_issue_migrates_watchlist_on_jira_rename(
     assert session.get(WatchlistEntry, "OLD-1") is None
     migrated = session.get(WatchlistEntry, "MOVED-42")
     assert migrated is not None
+
+
+def _seed_two_issues(session: Session, load_fixture) -> None:
+    from tendril.jira.dto import normalize_issue
+    from tendril.sync.pipeline import upsert_issue
+    upsert_issue(session, normalize_issue(load_fixture("issue_sample.json")))
+    upsert_issue(session, normalize_issue(load_fixture("issue_second.json")))
+    session.commit()
+
+
+def test_search_issues_empty_query_returns_nothing(session: Session, load_fixture) -> None:
+    _seed_two_issues(session, load_fixture)
+    assert search_issues(session, "") == []
+    assert search_issues(session, "   ") == []
+
+
+def test_search_issues_matches_by_key_and_summary(session: Session, load_fixture) -> None:
+    _seed_two_issues(session, load_fixture)
+    keys_for_key = [i.key for i in search_issues(session, "proj-2")]
+    assert keys_for_key == ["PROJ-2"]
+
+    keys_for_summary = {i.key for i in search_issues(session, "cached")}
+    assert keys_for_summary == {"PROJ-1", "PROJ-2"}
+
+
+def test_search_issues_ranks_key_matches_above_summary_matches(
+    session: Session, load_fixture
+) -> None:
+    """A key containing the query outranks an unrelated issue whose summary contains it."""
+    from tendril.db.models import Issue
+    _seed_two_issues(session, load_fixture)
+
+    # Make PROJ-1's summary contain "proj-2" so both rows match the same query,
+    # then verify PROJ-2 (key match) comes first.
+    proj1 = session.get(Issue, "PROJ-1")
+    assert proj1 is not None
+    proj1.summary = "mentions proj-2 in the summary"
+    session.commit()
+
+    ordered = [i.key for i in search_issues(session, "proj-2")]
+    assert ordered[0] == "PROJ-2"
+    assert "PROJ-1" in ordered
+
+
+def test_search_issues_is_case_insensitive(session: Session, load_fixture) -> None:
+    _seed_two_issues(session, load_fixture)
+    upper = {i.key for i in search_issues(session, "PROJ")}
+    lower = {i.key for i in search_issues(session, "proj")}
+    assert upper == lower == {"PROJ-1", "PROJ-2"}
 
 
 def test_incremental_falls_back_to_full_sync_if_no_timestamp(

@@ -66,6 +66,65 @@ def _cursor_to_key(table, key: str) -> None:
 
 
 @pytest.mark.asyncio
+async def test_slash_opens_search_and_enter_jumps_to_issue(
+    isolated_xdg: Path, load_fixture
+) -> None:
+    _seed(load_fixture)
+    app = TendrilApp(Config(jira=JiraConfig(url="https://x", email="me@x")))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        await pilot.press("slash")
+        await pilot.pause()
+
+        from tendril.tui.screens.search_modal import SearchModal
+        assert isinstance(app.screen, SearchModal)
+
+        # Type a key fragment; the input's on_input_changed populates the list.
+        for ch in "proj-2":
+            await pilot.press(ch if ch != "-" else "minus")
+        await pilot.pause()
+
+        from textual.widgets import OptionList
+        results = app.screen.query_one(OptionList)
+        assert results.option_count >= 1
+        assert results.get_option_at_index(0).id == "PROJ-2"
+
+        await pilot.press("enter")
+        await pilot.pause()
+
+        from tendril.tui.screens.issue_detail import IssueDetailScreen
+        assert isinstance(app.screen, IssueDetailScreen)
+        assert app.screen.issue_key == "PROJ-2"
+
+
+@pytest.mark.asyncio
+async def test_search_works_from_issue_detail_screen(
+    isolated_xdg: Path, load_fixture
+) -> None:
+    """The `/` binding is app-level, so it must fire on IssueDetailScreen too."""
+    _seed(load_fixture)
+    app = TendrilApp(Config(jira=JiraConfig(url="https://x", email="me@x")))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        from textual.widgets import DataTable
+        table = app.screen.query_one(DataTable)
+        _cursor_to_key(table, "PROJ-1")
+        await pilot.press("enter")
+        await pilot.pause()
+
+        from tendril.tui.screens.issue_detail import IssueDetailScreen
+        assert isinstance(app.screen, IssueDetailScreen)
+        assert app.screen.issue_key == "PROJ-1"
+
+        await pilot.press("slash")
+        await pilot.pause()
+
+        from tendril.tui.screens.search_modal import SearchModal
+        assert isinstance(app.screen, SearchModal)
+
+
+@pytest.mark.asyncio
 async def test_remove_from_watchlist_via_keybinding(isolated_xdg: Path, load_fixture) -> None:
     """Pressing `d` drops the watchlist marker; the cached row itself stays."""
     _seed(load_fixture)

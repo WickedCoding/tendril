@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from tendril.config import Config
@@ -206,3 +206,41 @@ def list_all_issues(session: Session) -> list[tuple[Issue, bool]]:
     }
     issues.sort(key=lambda i: (i.updated is None, -(i.updated.timestamp() if i.updated else 0)))
     return [(issue, issue.key in watchlisted) for issue in issues]
+
+
+def search_issues(session: Session, query: str, limit: int = 50) -> list[Issue]:
+    """Return cached issues matching `query` (case-insensitive) against key or summary.
+
+    Ranked: exact key > key startswith > key contains > summary contains.
+    Ties broken by `updated` desc so recent work floats up. Empty/whitespace → [].
+    """
+    q = query.strip().lower()
+    if not q:
+        return []
+    pattern = f"%{q}%"
+    stmt = select(Issue).where(
+        or_(
+            func.lower(Issue.key).like(pattern),
+            func.lower(Issue.summary).like(pattern),
+        )
+    )
+    issues = list(session.scalars(stmt).all())
+
+    def score(issue: Issue) -> int:
+        key = (issue.key or "").lower()
+        if key == q:
+            return 0
+        if key.startswith(q):
+            return 1
+        if q in key:
+            return 2
+        return 3
+
+    issues.sort(
+        key=lambda i: (
+            score(i),
+            i.updated is None,
+            -(i.updated.timestamp() if i.updated else 0),
+        )
+    )
+    return issues[:limit]

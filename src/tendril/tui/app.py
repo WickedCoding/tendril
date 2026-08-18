@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from textual.app import App
+from textual.binding import Binding
 from textual.worker import Worker
 
 from tendril.config import Config
@@ -21,6 +22,9 @@ class TendrilApp(App):
 
     TITLE = "tendril"
     COMMANDS = App.COMMANDS | {SyncCommands}
+    BINDINGS = [
+        Binding("/", "open_search", "Search"),
+    ]
 
     def __init__(self, cfg: Config) -> None:
         super().__init__()
@@ -149,3 +153,14 @@ class TendrilApp(App):
         reload = getattr(screen, "reload", None)
         if callable(reload):
             reload()
+
+    def action_open_search(self) -> None:
+        """Global jump-to-issue. Push the picked issue on top of whatever screen is active."""
+        from tendril.tui.screens.issue_detail import IssueDetailScreen
+        from tendril.tui.screens.search_modal import SearchModal
+
+        def after(key: str | None) -> None:
+            if key:
+                self.push_screen(IssueDetailScreen(key))
+
+        self.push_screen(SearchModal(), after)
