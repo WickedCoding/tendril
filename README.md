@@ -7,19 +7,21 @@ Deliberately narrow: this is a personal tool, not a team dashboard.
 ## Install
 
 ```sh
-uv sync
-uv run tendril config init          # walks through URL, email, API token
-uv run tendril whoami               # verifies auth
+uv tool install tendril-jira        # or: pipx install tendril-jira
+tendril config init                 # walks through URL, email, API token
+tendril whoami                      # verifies auth
 ```
 
-Config lives at `~/.config/tendril/config.toml`; the API token in the OS keyring; the cache at `~/.local/share/tendril/tendril.db`. See [docs/config.md](docs/config.md) for token rotation, manual TOML editing, and per-instance settings.
+Both installers put `tendril` on your `PATH`. Config lives at `~/.config/tendril/config.toml`; the API token in the OS keyring; the cache at `~/.local/share/tendril/tendril.db`. See [docs/config.md](docs/config.md) for token rotation, manual TOML editing, and per-instance settings.
+
+For a throwaway trial without installing, `uvx tendril-jira config init` works too — but the config, keyring entry, and cache still persist on disk between runs.
 
 ## First sync
 
 ```sh
-uv run tendril sync project MMINT   # pulls every issue in MMINT into the cache (paginated)
-uv run tendril show MMINT-42        # prints an issue from the cache
-uv run tendril sync incremental     # from then on, refreshes only what changed
+tendril sync project MMINT   # pulls every issue in MMINT into the cache (paginated)
+tendril show MMINT-42        # prints an issue from the cache
+tendril sync incremental     # from then on, refreshes only what changed
 ```
 
 See [docs/sync.md](docs/sync.md) for `sync issue` (single-issue fallback), the rename-migration behavior, and the intended workflow in detail.
@@ -35,7 +37,7 @@ See [docs/watchlist.md](docs/watchlist.md) for `watchlist add`, `remove`, `list`
 Run with no subcommand:
 
 ```sh
-uv run tendril
+tendril
 ```
 
 Two screens plus a global search.
@@ -106,28 +108,6 @@ The field is assumed to be a JIRA labels-type custom field (payload shape `["fla
 - **JIRA rename resilience.** If JIRA has moved an issue to another project, `sync issue OLDKEY` follows the redirect, cache is upserted under the new key, and any watchlist entry for the old key is migrated.
 - **No Alembic yet.** `Base.metadata.create_all()` plus a `schema_version` row carries us here. Alembic joins when the first breaking schema change lands.
 
-## Testing
+## Contributing
 
-```sh
-uv run pytest
-```
-
-Unit + Textual `Pilot` smoke tests. Live integration tests (real JIRA calls against a sandbox) are gated:
-
-```sh
-TENDRIL_LIVE=1 TENDRIL_LIVE_ISSUE=SANDBOX-1 uv run pytest tests/integration
-```
-
-## Layout
-
-```
-src/tendril/
-  cli.py            typer app; console_script `tendril`
-  config.py         XDG paths, TOML load/save, keyring
-  db/               SQLAlchemy 2 models, engine, schema init
-  jira/             thin atlassian-python-api wrapper + DTOs
-  sync/             fetch → normalize → upsert; sync_issue, sync_project, incremental
-  operations/       single write layer (JIRA write → refetch)
-  alerts/           local-only tags + alerts; matcher for the Surfaces panel
-  tui/              Textual app, screens, modals, command-palette provider
-```
+Setup, tests, layout, and the release rite live in [CONTRIBUTING.md](CONTRIBUTING.md).
