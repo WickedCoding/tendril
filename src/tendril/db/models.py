@@ -108,3 +108,19 @@ class IssueAlert(Base):
 
     issue_key: Mapped[str] = mapped_column(String, primary_key=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class LinkType(Base):
+    """A JIRA issue-link type as offered by the configured instance.
+
+    Populated wholesale by `tendril sync link-types`; consumed by the link modals
+    to offer a real chooser instead of a free-text field. `name` is what JIRA's
+    create-link endpoint expects; `outward` and `inward` are the directional
+    phrases humans read (e.g. name="Blocks", outward="blocks", inward="is blocked by").
+    """
+
+    __tablename__ = "link_type"
+
+    name: Mapped[str] = mapped_column(String, primary_key=True)
+    outward: Mapped[str] = mapped_column(String, nullable=False)
+    inward: Mapped[str] = mapped_column(String, nullable=False)

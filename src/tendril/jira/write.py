@@ -14,12 +14,17 @@ def add_comment(client: JiraWriteLike, key: str, body: str) -> Any:
     return client.issue_add_comment(key, body)
 
 
-def create_link(client: JiraWriteLike, link_type: str, source_key: str, target_key: str) -> Any:
-    """Create a link `source_key --link_type--> target_key` in JIRA."""
+def create_link(client: JiraWriteLike, type_name: str, outward_key: str, inward_key: str) -> Any:
+    """Create a link between two issues.
+
+    JIRA's link semantics: `outward_key <outward-phrase> inward_key`. E.g. for
+    type "Blocks", `outward_key blocks inward_key`. Callers translate the user's
+    chosen direction into (outward_key, inward_key) before calling.
+    """
     data = {
-        "type": {"name": link_type},
-        "outwardIssue": {"key": source_key},
-        "inwardIssue": {"key": target_key},
+        "type": {"name": type_name},
+        "outwardIssue": {"key": outward_key},
+        "inwardIssue": {"key": inward_key},
     }
     return client.create_issue_link(data)
 

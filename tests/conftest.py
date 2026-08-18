@@ -43,9 +43,17 @@ class FakeJira:
       - `updated >= "..."` — captured but ignored
     """
 
-    def __init__(self, issues: dict[str, dict]) -> None:
+    def __init__(
+        self,
+        issues: dict[str, dict],
+        link_types: list[dict] | None = None,
+    ) -> None:
         self._issues = issues
+        self._link_types = link_types or []
         self.jql_calls: list[str] = []
+
+    def get_issue_link_types(self) -> dict:
+        return {"issueLinkTypes": list(self._link_types)}
 
     def issue(self, key: str, fields: str | None = None, expand: str | None = None) -> dict:
         try:

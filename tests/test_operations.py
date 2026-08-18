@@ -51,14 +51,23 @@ class FakeOpsJira:
         self.calls.append(("create_link", (data,), {}))
         link_id = str(self._next_link_id)
         self._next_link_id += 1
-        source = data["outwardIssue"]["key"]
-        target = data["inwardIssue"]["key"]
+        outward_key = data["outwardIssue"]["key"]
+        inward_key = data["inwardIssue"]["key"]
         link_type = data["type"]["name"]
-        self._issues[source]["fields"].setdefault("issuelinks", []).append({
-            "id": link_id,
-            "type": {"name": link_type},
-            "outwardIssue": {"key": target},
-        })
+        # Mirror the link into both fixture sides that we happen to have.
+        # Tests without every referenced issue in the store still exercise the wire call.
+        if outward_key in self._issues:
+            self._issues[outward_key]["fields"].setdefault("issuelinks", []).append({
+                "id": link_id,
+                "type": {"name": link_type},
+                "outwardIssue": {"key": inward_key},
+            })
+        if inward_key in self._issues:
+            self._issues[inward_key]["fields"].setdefault("issuelinks", []).append({
+                "id": link_id,
+                "type": {"name": link_type},
+                "inwardIssue": {"key": outward_key},
+            })
         return {"id": link_id}
 
     def remove_issue_link(self, link_id):
@@ -97,16 +106,37 @@ def test_add_comment_writes_then_refreshes_cache(seeded: Session, load_fixture) 
     assert any(c.body == "Fresh comment." for c in fresh)
 
 
-def test_create_link_writes_then_refreshes_cache(seeded: Session, load_fixture) -> None:
+def test_create_link_outward_writes_source_as_outward_issue(
+    seeded: Session, load_fixture
+) -> None:
     client = _client(load_fixture)
-    ops.create_link(client, seeded, "PROJ-1", "PROJ-999", "Blocks")
+    ops.create_link(client, seeded, "PROJ-1", "PROJ-999", "Blocks", "outward")
     assert client.calls[0][0] == "create_link"
-    # link_type + direction round-tripped through the cache
+    data = client.calls[0][1][0]
+    assert data["outwardIssue"]["key"] == "PROJ-1"
+    assert data["inwardIssue"]["key"] == "PROJ-999"
     links = seeded.scalars(select(IssueLink).where(IssueLink.source_key == "PROJ-1")).all()
     assert any(
         l.target_key == "PROJ-999" and l.direction == "outward" and l.link_type == "Blocks"
         for l in links
     )
+
+
+def test_create_link_inward_flips_source_and_target_on_the_wire(
+    seeded: Session, load_fixture
+) -> None:
+    """`inward` means source uses the inward phrase → source becomes the inwardIssue in JIRA."""
+    client = _client(load_fixture)
+    ops.create_link(client, seeded, "PROJ-1", "PROJ-999", "Blocks", "inward")
+    data = client.calls[0][1][0]
+    assert data["outwardIssue"]["key"] == "PROJ-999"
+    assert data["inwardIssue"]["key"] == "PROJ-1"
+
+
+def test_create_link_rejects_unknown_direction(seeded: Session, load_fixture) -> None:
+    client = _client(load_fixture)
+    with pytest.raises(ValueError, match="direction"):
+        ops.create_link(client, seeded, "PROJ-1", "PROJ-999", "Blocks", "sideways")
 
 
 def test_delete_link_removes_and_refreshes(seeded: Session, load_fixture) -> None:

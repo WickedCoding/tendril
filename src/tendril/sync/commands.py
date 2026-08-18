@@ -6,8 +6,8 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from tendril.config import Config
-from tendril.db.models import Issue, IssueTag, ProjectSyncState, WatchlistEntry
-from tendril.jira.fetch import JiraLike, fetch_issue, search_by_jql
+from tendril.db.models import Issue, IssueTag, LinkType, ProjectSyncState, WatchlistEntry
+from tendril.jira.fetch import JiraLike, fetch_issue, fetch_link_types, search_by_jql
 from tendril.sync.pipeline import upsert_issue
 
 INCREMENTAL_SAFETY_BUFFER = timedelta(minutes=5)
@@ -118,6 +118,20 @@ def incremental_sync(
 
     session.commit()
     return all_rows
+
+
+def sync_link_types(client: JiraLike, session: Session) -> list[LinkType]:
+    """Replace the local link-type table with the current JIRA offering.
+
+    Link types change rarely and only through admin action, so no incremental
+    path: each call fetches the full list and overwrites the table.
+    """
+    fresh = fetch_link_types(client)
+    session.query(LinkType).delete()
+    rows = [LinkType(name=dto.name, outward=dto.outward, inward=dto.inward) for dto in fresh]
+    session.add_all(rows)
+    session.commit()
+    return rows
 
 
 def _touch_project_state(

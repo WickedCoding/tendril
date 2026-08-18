@@ -32,14 +32,25 @@ def create_link(
     session: Session,
     source_key: str,
     target_key: str,
-    link_type: str,
+    type_name: str,
+    direction: str,
     cfg: Config | None = None,
 ) -> Issue:
-    """Create `source --link_type--> target` in JIRA and refresh the source in the cache.
+    """Create a link from `source_key` to `target_key` and refresh the source in the cache.
+
+    `direction` reads from the source's perspective: `"outward"` means the source
+    uses the outward phrase (e.g. `source blocks target` for type "Blocks");
+    `"inward"` means the source uses the inward phrase (e.g. `source is blocked by target`).
 
     The target is not refreshed automatically — the user can open it and press `r` if needed.
     """
-    jw.create_link(client, link_type, source_key, target_key)
+    if direction == "outward":
+        outward, inward = source_key, target_key
+    elif direction == "inward":
+        outward, inward = target_key, source_key
+    else:
+        raise ValueError(f"direction must be 'outward' or 'inward', got {direction!r}")
+    jw.create_link(client, type_name, outward, inward)
     return sync_issue(client, session, source_key, cfg=cfg)
 
 

@@ -179,6 +179,24 @@ def sync_incremental_cmd() -> None:
         close()
 
 
+@sync_app.command("link-types")
+def sync_link_types_cmd() -> None:
+    """Fetch the JIRA instance's issue link types and replace the local cache."""
+    cfg = _load_config_or_die()
+    client = jira_client.build(cfg)
+    session, close = _open_session()
+    try:
+        rows = sync_ops.sync_link_types(client, session)
+        console.print(f"[green]Synced[/green] {plural(len(rows), 'link type')}.")
+        for r in rows:
+            console.print(f"  [bold]{r.name}[/bold] · {r.outward} · {r.inward}")
+    except Exception as e:
+        err_console.print(f"[red]Sync failed:[/red] {e}")
+        raise typer.Exit(2)
+    finally:
+        close()
+
+
 @watchlist_app.command("add")
 def watchlist_add_cmd(
     keys: list[str] = typer.Argument(..., help="One or more JIRA issue keys."),

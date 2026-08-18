@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Protocol
 
-from tendril.jira.dto import ISSUE_FIELDS, SEARCH_FIELDS, IssueDTO, normalize_issue
+from tendril.jira.dto import ISSUE_FIELDS, SEARCH_FIELDS, IssueDTO, LinkTypeDTO, normalize_issue
 
 JQL_CHUNK = 50
 
@@ -17,6 +17,17 @@ class JiraLike(Protocol):
         limit: int | None = None,
         expand: str | None = None,
     ) -> dict[str, Any]: ...
+    def get_issue_link_types(self) -> dict[str, Any]: ...
+
+
+def fetch_link_types(client: JiraLike) -> list[LinkTypeDTO]:
+    """Fetch every issue link type the configured JIRA instance offers."""
+    payload = client.get_issue_link_types()
+    raw = payload.get("issueLinkTypes", payload) if isinstance(payload, dict) else payload
+    return [
+        LinkTypeDTO(name=t["name"], outward=t["outward"], inward=t["inward"])
+        for t in raw
+    ]
 
 
 def _compose(base: list[str], extra: list[str] | None) -> str:

@@ -31,6 +31,14 @@ class LinkDTO(BaseModel):
     target_key: str
 
 
+class LinkTypeDTO(BaseModel):
+    """A JIRA link type: the `name` used in write payloads plus its human phrases."""
+
+    name: str
+    outward: str
+    inward: str
+
+
 class IssueDTO(BaseModel):
     key: str
     summary: str | None = None

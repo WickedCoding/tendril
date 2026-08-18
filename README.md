@@ -22,7 +22,10 @@ For a throwaway trial without installing, `uvx tendril-jira config init` works t
 tendril sync project MMINT   # pulls every issue in MMINT into the cache (paginated)
 tendril show MMINT-42        # prints an issue from the cache
 tendril sync incremental     # from then on, refreshes only what changed
+tendril sync link-types      # caches the instance's issue-link types (Blocks, Relates, …)
 ```
+
+Run `sync link-types` at least once so the link modal in the TUI can offer a real chooser instead of a free-text field. Re-run only when your JIRA admin adds or renames a link type.
 
 See [docs/sync.md](docs/sync.md) for `sync issue` (single-issue fallback), the rename-migration behavior, and the intended workflow in detail.
 
@@ -61,7 +64,7 @@ Two screens plus a global search.
 |-----|-----------------------------------------------|
 | r   | refetch this issue from JIRA                  |
 | c   | add a comment (ctrl+s in the modal to submit) |
-| l   | link this issue to another key                |
+| l   | link this issue to another key (chooser + ctrl+s to submit) |
 | x   | remove the highlighted link (Links tab only)  |
 | f   | edit the feature-flags custom field           |
 | t   | edit local tags on this issue                 |

@@ -21,7 +21,7 @@ from sqlalchemy import select
 
 from tendril.alerts import ops as alert_ops
 from tendril.alerts.matcher import find_surfaces
-from tendril.db.models import Comment, Issue, IssueLink
+from tendril.db.models import Comment, Issue, IssueLink, LinkType
 from tendril.jira.render import render_description
 from tendril.operations import ops as write_ops
 from tendril.tui.screens.comment_modal import CommentModal
@@ -95,10 +95,8 @@ class IssueDetailScreen(Screen):
         # Fixed column widths so the table fits inside the 7fr detail pane instead of
         # auto-sizing to the widest title and overflowing under the surfaces panel.
         # The row key still carries `link:<id>` / `child:<key>` for remove/navigate.
-        table.add_column("type", width=10)
-        table.add_column("direction", width=3)
-        table.add_column("target", width=14)
-        table.add_column("title", width=60)
+        table.add_column("linked item", width=35)
+        table.add_column("title", width=55)
         table.add_column("status", width=16)
         self.reload()
 
@@ -163,20 +161,24 @@ class IssueDetailScreen(Screen):
                 ):
                     summaries[key] = (summary, status)
 
+            link_type_phrases = {
+                lt.name: (lt.outward, lt.inward)
+                for lt in session.scalars(select(LinkType)).all()
+            }
+
             table = self.query_one("#links-table", DataTable)
             table.clear()
 
             for link in links:
-                arrow = "→" if link.direction == "outward" else "←"
                 table.add_row(
-                    link.link_type, arrow, link.target_key,
+                    _linked_item_cell(link.link_type, link.direction, link.target_key, link_type_phrases),
                     _title_cell(link.target_key, summaries),
                     _status_cell(link.target_key, summaries),
                     key=f"link:{link.id}",
                 )
             for child in children:
                 table.add_row(
-                    "Child", "↓", child.key,
+                    f"contains {child.key}",
                     child.summary or "[dim]—[/dim]",
                     child.status or "[dim]-[/dim]",
                     key=f"child:{child.key}",
@@ -235,20 +237,25 @@ class IssueDetailScreen(Screen):
     def action_add_link(self) -> None:
         cfg = self.app.cfg  # type: ignore[attr-defined]
         default = cfg.links.default_link_type
+        link_types = self._load_link_types()
 
-        def after(result: tuple[str, str] | None) -> None:
+        def after(result: tuple[str, str, str] | None) -> None:
             if not result:
                 return
-            target, link_type = result
+            target, type_name, direction = result
             self.app.run_write(  # type: ignore[attr-defined]
                 f"Link → {target}",
                 lambda session, client: write_ops.create_link(
-                    client, session, self.issue_key, target, link_type, cfg=cfg
+                    client, session, self.issue_key, target, type_name, direction, cfg=cfg
                 ),
                 on_done=self.reload,
             )
 
-        self.app.push_screen(LinkModal(default_link_type=default), after)
+        self.app.push_screen(LinkModal(link_types, default_link_type=default), after)
+
+    def _load_link_types(self) -> list[LinkType]:
+        with self.app.session_factory() as session:  # type: ignore[attr-defined]
+            return list(session.scalars(select(LinkType).order_by(LinkType.name)).all())
 
     def action_remove_link(self) -> None:
         # Only meaningful when the links tab is active AND a real link row is selected.
@@ -356,14 +363,16 @@ class IssueDetailScreen(Screen):
         source_key = self.issue_key
         target_key = target_issue.key
         cfg = self.app.cfg  # type: ignore[attr-defined]
+        link_types = self._load_link_types()
 
-        def after(link_type: str | None) -> None:
-            if not link_type:
+        def after(result: tuple[str, str] | None) -> None:
+            if not result:
                 return
+            type_name, direction = result
             self.app.run_write(  # type: ignore[attr-defined]
                 f"Link → {target_key}",
                 lambda session, client: write_ops.create_link(
-                    client, session, source_key, target_key, link_type, cfg=cfg
+                    client, session, source_key, target_key, type_name, direction, cfg=cfg
                 ),
                 on_done=self.reload,
             )
@@ -374,6 +383,7 @@ class IssueDetailScreen(Screen):
                 status=target_issue.status,
                 summary=target_issue.summary,
                 shared_tags=shared_tags,
+                link_types=link_types,
                 default_link_type=default,
             ),
             after,
@@ -416,6 +426,27 @@ def _card_prompt(issue: Issue, shared_tags: list[str]) -> Text:
     summary.truncate(120, overflow="ellipsis")
     tags = Text("shared: " + " · ".join("#" + t for t in shared_tags), style="dim")
     return Text("\n").join([header, summary, tags])
+
+
+def _linked_item_cell(
+    link_type: str,
+    direction: str,
+    target_key: str,
+    phrases: dict[str, tuple[str, str]],
+) -> str:
+    """Render a link as `<phrase> TARGET-KEY`.
+
+    Uses the cached outward/inward phrase for the link type; falls back to the
+    raw API name plus a direction arrow if the type isn't cached (run
+    `tendril sync link-types` to fix).
+    """
+    if link_type in phrases:
+        outward, inward = phrases[link_type]
+        phrase = outward if direction == "outward" else inward
+    else:
+        arrow = "→" if direction == "outward" else "←"
+        phrase = f"{link_type} {arrow}"
+    return f"{phrase} {target_key}"
 
 
 def _title_cell(target_key: str, summaries: dict[str, tuple[str | None, str | None]]) -> str:
