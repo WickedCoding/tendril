@@ -17,20 +17,28 @@ class AddToWatchlistModal(ModalScreen[str | None]):
     }
     AddToWatchlistModal > Vertical {
         width: 60;
+        height: auto;
         padding: 1 2;
         background: $surface;
         border: round $primary;
     }
     """
 
+    def __init__(self, prefill: str | None = None) -> None:
+        super().__init__()
+        self._prefill = prefill or ""
+
     def compose(self) -> ComposeResult:
         with Vertical():
             yield Label("Add JIRA key to watchlist (e.g. PROJ-123):")
-            yield Input(placeholder="PROJ-123", id="key-input")
+            yield Input(value=self._prefill, placeholder="PROJ-123", id="key-input")
             yield Label("[dim]enter to confirm · esc to cancel[/dim]")
 
     def on_mount(self) -> None:
-        self.query_one(Input).focus()
+        inp = self.query_one(Input)
+        inp.focus()
+        if self._prefill:
+            inp.cursor_position = len(self._prefill)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         value = event.value.strip()

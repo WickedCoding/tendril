@@ -24,8 +24,8 @@ class TendrilApp(App):
     TITLE = "tendril"
     COMMANDS = App.COMMANDS | {SyncCommands}
     BINDINGS = [
-        Binding("/", "open_search", "Search"),
-        Binding("S", "open_sprint_watchlist", "Sprint"),
+        Binding("/", "open_search", "Search", show=False),
+        Binding("S", "open_sprint_watchlist", "Sprint", show=False),
     ]
 
     def __init__(self, cfg: Config) -> None:

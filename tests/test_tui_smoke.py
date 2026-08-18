@@ -587,6 +587,25 @@ async def test_palette_lists_sync_commands(isolated_xdg: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_add_modal_prefills_with_cursor_key(isolated_xdg: Path, load_fixture) -> None:
+    """Pressing `a` opens the modal with the highlighted issue's key already filled in."""
+    _seed(load_fixture)
+    app = TendrilApp(Config(jira=JiraConfig(url="https://x", email="me@x")))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        from textual.widgets import DataTable, Input
+        table = app.screen.query_one(DataTable)
+        _cursor_to_key(table, "PROJ-2")
+
+        await pilot.press("a")
+        await pilot.pause()
+
+        from tendril.tui.screens.add_modal import AddToWatchlistModal
+        assert isinstance(app.screen, AddToWatchlistModal)
+        assert app.screen.query_one(Input).value == "PROJ-2"
+
+
+@pytest.mark.asyncio
 async def test_theme_change_persists_to_config(isolated_xdg: Path) -> None:
     from tendril import config as cfg_mod
 

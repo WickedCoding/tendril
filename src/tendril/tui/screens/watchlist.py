@@ -21,11 +21,13 @@ class WatchlistScreen(Screen):
     """Overview of every cached issue with watchlist + open/closed filters."""
 
     BINDINGS = [
+        Binding("/", "app.open_search", "Search"),
         Binding("a", "add", "Add"),
         Binding("d", "remove", "Remove"),
         Binding("w", "toggle_watchlist_filter", "Watchlist only"),
         Binding("o", "toggle_open_filter", "Open only"),
         Binding("m", "toggle_mine_filter", "Mine"),
+        Binding("S", "app.open_sprint_watchlist", "Sprint"),
         Binding("s", "sync", "Sync incremental"),
         Binding("r", "refresh", "Reload"),
         Binding("q", "quit_app", "Quit"),
@@ -153,7 +155,14 @@ class WatchlistScreen(Screen):
                     f"Added {key}. Not in cache yet — sync the project or run `tendril sync issue {key}`."
                 )
 
-        self.app.push_screen(AddToWatchlistModal(), _after)
+        self.app.push_screen(AddToWatchlistModal(prefill=self._cursor_key()), _after)
+
+    def _cursor_key(self) -> str | None:
+        table = self.query_one(DataTable)
+        if table.row_count == 0:
+            return None
+        row_key = table.coordinate_to_cell_key(table.cursor_coordinate).row_key
+        return str(row_key.value) if row_key.value is not None else None
 
     def action_remove(self) -> None:
         """Drop the highlighted issue from the watchlist (the cached issue stays)."""
