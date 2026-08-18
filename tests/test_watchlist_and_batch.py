@@ -203,6 +203,62 @@ def test_search_issues_is_case_insensitive(session: Session, load_fixture) -> No
     assert upper == lower == {"PROJ-1", "PROJ-2"}
 
 
+def test_search_issues_matches_by_tag(session: Session, load_fixture) -> None:
+    from tendril.db.models import IssueTag
+    _seed_two_issues(session, load_fixture)
+    session.add(IssueTag(issue_key="PROJ-1", tag="logo"))
+    session.commit()
+
+    keys = {i.key for i in search_issues(session, "logo")}
+    assert keys == {"PROJ-1"}
+
+    # Case-insensitive and partial matches on tag too.
+    assert {i.key for i in search_issues(session, "LOGO")} == {"PROJ-1"}
+    assert {i.key for i in search_issues(session, "log")} == {"PROJ-1"}
+
+
+def test_search_issues_ranks_tag_matches_between_key_and_summary(
+    session: Session, load_fixture
+) -> None:
+    """Tag matches sit above summary matches, below key matches."""
+    from tendril.db.models import Issue, IssueTag
+    _seed_two_issues(session, load_fixture)
+
+    # PROJ-1 gets tagged "logo"; PROJ-2's summary mentions the word.
+    session.add(IssueTag(issue_key="PROJ-1", tag="logo"))
+    proj2 = session.get(Issue, "PROJ-2")
+    assert proj2 is not None
+    proj2.summary = "the logo appears here"
+    session.commit()
+
+    ordered = [i.key for i in search_issues(session, "logo")]
+    assert ordered == ["PROJ-1", "PROJ-2"]  # tag match beats summary match
+
+
+def test_search_issues_hash_prefix_matches_tags_only(
+    session: Session, load_fixture
+) -> None:
+    """`#logo` matches only issues tagged 'logo', ignoring key/summary matches."""
+    from tendril.db.models import Issue, IssueTag
+    _seed_two_issues(session, load_fixture)
+
+    # PROJ-1 has the tag; PROJ-2's summary contains the word but has no tag.
+    session.add(IssueTag(issue_key="PROJ-1", tag="logo"))
+    proj2 = session.get(Issue, "PROJ-2")
+    assert proj2 is not None
+    proj2.summary = "the logo appears here"
+    session.commit()
+
+    keys = {i.key for i in search_issues(session, "#logo")}
+    assert keys == {"PROJ-1"}
+
+    # Partial tag match under the hash prefix still works.
+    assert {i.key for i in search_issues(session, "#log")} == {"PROJ-1"}
+    # Bare `#` yields nothing.
+    assert search_issues(session, "#") == []
+    assert search_issues(session, "  #  ") == []
+
+
 def test_incremental_falls_back_to_full_sync_if_no_timestamp(
     session: Session, load_fixture, fake_jira_class
 ) -> None:

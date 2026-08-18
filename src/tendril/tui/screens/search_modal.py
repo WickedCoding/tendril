@@ -37,7 +37,10 @@ class SearchModal(ModalScreen[str | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical():
-            yield Input(placeholder="search key or summary…", id="search-input")
+            yield Input(
+                placeholder="search key, tag, or summary — prefix #tag for tag-only…",
+                id="search-input",
+            )
             yield OptionList(id="results")
             yield Label(
                 "[dim]enter to open · ↓ to browse results · esc to cancel[/dim]",

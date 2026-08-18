@@ -75,7 +75,7 @@ Two screens plus a global search.
 
 | key    | binding                                                |
 |--------|--------------------------------------------------------|
-| /      | search cached issues by key or summary                 |
+| /      | search cached issues by key, tag, or summary (`#tag` narrows to tags only) |
 | ctrl+p | command palette (`Sync project…` + one per synced project) |
 
 ## Tags and alerts

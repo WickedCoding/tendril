@@ -6,7 +6,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from tendril.config import Config
-from tendril.db.models import Issue, ProjectSyncState, WatchlistEntry
+from tendril.db.models import Issue, IssueTag, ProjectSyncState, WatchlistEntry
 from tendril.jira.fetch import JiraLike, fetch_issue, search_by_jql
 from tendril.sync.pipeline import upsert_issue
 
@@ -209,24 +209,47 @@ def list_all_issues(session: Session) -> list[tuple[Issue, bool]]:
 
 
 def search_issues(session: Session, query: str, limit: int = 50) -> list[Issue]:
-    """Return cached issues matching `query` (case-insensitive) against key or summary.
+    """Return cached issues matching `query` (case-insensitive).
 
-    Ranked: exact key > key startswith > key contains > summary contains.
+    Prefix `#` narrows the search to tags only (e.g. `#logo`). Otherwise matches
+    against key, tag, or summary and ranks: exact key > key startswith >
+    key contains > exact tag > tag contains > summary contains.
+
     Ties broken by `updated` desc so recent work floats up. Empty/whitespace → [].
     """
-    q = query.strip().lower()
+    raw = query.strip().lower()
+    if not raw:
+        return []
+
+    tag_only = raw.startswith("#")
+    q = raw[1:] if tag_only else raw
     if not q:
         return []
     pattern = f"%{q}%"
-    stmt = select(Issue).where(
-        or_(
-            func.lower(Issue.key).like(pattern),
-            func.lower(Issue.summary).like(pattern),
-        )
+
+    tag_stmt = select(IssueTag.issue_key, func.lower(IssueTag.tag)).where(
+        func.lower(IssueTag.tag).like(pattern)
     )
+    tag_matches: dict[str, set[str]] = {}
+    for issue_key, tag in session.execute(tag_stmt).all():
+        tag_matches.setdefault(issue_key, set()).add(tag)
+
+    if tag_only:
+        stmt = select(Issue).where(Issue.key.in_(tag_matches.keys()))
+    else:
+        stmt = select(Issue).where(
+            or_(
+                func.lower(Issue.key).like(pattern),
+                func.lower(Issue.summary).like(pattern),
+                Issue.key.in_(tag_matches.keys()),
+            )
+        )
     issues = list(session.scalars(stmt).all())
 
     def score(issue: Issue) -> int:
+        tags = tag_matches.get(issue.key, set())
+        if tag_only:
+            return 0 if q in tags else 1
         key = (issue.key or "").lower()
         if key == q:
             return 0
@@ -234,7 +257,11 @@ def search_issues(session: Session, query: str, limit: int = 50) -> list[Issue]:
             return 1
         if q in key:
             return 2
-        return 3
+        if q in tags:
+            return 3
+        if tags:
+            return 4
+        return 5
 
     issues.sort(
         key=lambda i: (
