@@ -12,30 +12,23 @@ uv run tendril config init          # walks through URL, email, API token
 uv run tendril whoami               # verifies auth
 ```
 
-Config lives at `~/.config/tendril/config.toml`. The API token is stored in the OS keyring under service `tendril`, keyed by your email. The local cache is a SQLite database at `~/.local/share/tendril/tendril.db`.
+Config lives at `~/.config/tendril/config.toml`; the API token in the OS keyring; the cache at `~/.local/share/tendril/tendril.db`. See [docs/config.md](docs/config.md) for token rotation, manual TOML editing, and per-instance settings.
 
 ## First sync
 
 ```sh
 uv run tendril sync project MMINT   # pulls every issue in MMINT into the cache (paginated)
 uv run tendril show MMINT-42        # prints an issue from the cache
+uv run tendril sync incremental     # from then on, refreshes only what changed
 ```
 
-After the first `sync project`, `sync incremental` will refresh only issues that changed:
-
-```sh
-uv run tendril sync incremental     # refreshes every project you've synced before
-```
+See [docs/sync.md](docs/sync.md) for `sync issue` (single-issue fallback), the rename-migration behavior, and the intended workflow in detail.
 
 ## Watchlist
 
-The watchlist is a marker layer on top of the cache. Adding a key never touches JIRA. If the key isn't in the cache yet, the CLI tells you.
+A marker layer on top of the cache — adding a key never touches JIRA. Watchlisted rows show a `★` marker in the TUI overview and render in the accent color.
 
-```sh
-uv run tendril watchlist add MMINT-42 MMINT-100
-uv run tendril watchlist list
-uv run tendril watchlist remove MMINT-42
-```
+See [docs/watchlist.md](docs/watchlist.md) for `watchlist add`, `remove`, `list`, and the TUI shortcuts.
 
 ## TUI
 
@@ -45,18 +38,20 @@ Run with no subcommand:
 uv run tendril
 ```
 
-Two screens:
+Two screens plus a global search.
 
-**Watchlist** — a table of watched issues.
+**Overview** — a table of every cached issue, with a `★` column marking watchlisted rows.
 
-| key | binding                    |
-|-----|----------------------------|
-| a   | add issue key to watchlist |
-| d   | remove highlighted row     |
-| s   | run incremental sync       |
-| r   | reload from cache          |
-| ↵   | open issue detail          |
-| q   | quit                       |
+| key | binding                                      |
+|-----|----------------------------------------------|
+| a   | add issue key to watchlist                   |
+| d   | drop watchlist marker on highlighted row     |
+| w   | toggle watchlist-only filter                 |
+| o   | toggle open-only filter (hides done statuses)|
+| s   | run incremental sync                         |
+| r   | reload from cache                            |
+| ↵   | open issue detail                            |
+| q   | quit                                         |
 
 **Issue detail** — metadata plus tabs (Description, Comments, Links, Flags) on the left, a **Surfaces** panel on the right (7:3 split).
 
@@ -70,51 +65,38 @@ Two screens:
 | t   | edit local tags on this issue                 |
 | A   | toggle the alert marker on this issue         |
 | s   | focus the Surfaces panel                      |
+| p   | open this issue's parent                      |
 | ↵   | (on a surface card) open the link modal       |
 | esc | back                                          |
 
-**Command palette** — `ctrl+p` opens Textual's palette. It includes:
+**Global** — works from any screen:
 
-- `Sync project…` — prompts for a project key.
-- `Sync project KEY` — one entry per project already synced.
+| key    | binding                                                |
+|--------|--------------------------------------------------------|
+| /      | search cached issues by key or summary                 |
+| ctrl+p | command palette (`Sync project…` + one per synced project) |
 
 ## Tags and alerts
 
 Two local layers on top of the cache. Neither is pushed to JIRA.
 
-- **Tags** are free-form labels on cached issues (`logo`, `branding`, `deal-placement`, ...). Use them however you like — categorise by area, by team, by intent.
-- **Alerts** mark an issue as one you want *reminded of*. When you open a different cached issue, tendril compares its tags against every alert. Alerts that share ≥1 tag surface as cards in the right-hand panel of the Issue Detail screen; press `↵` on a card to link the two issues from a small modal.
+- **Tags** are free-form labels on cached issues (`logo`, `branding`, `deal-placement`, …).
+- **Alerts** mark an issue as one you want reminded of. When you open a different cached issue, alerts that share at least one tag surface as cards on the right-hand Surfaces panel. Press `↵` on a card to link the two issues.
 
-The trigger *is* the tag overlap — there are no rule files to write. Marking an issue as an alert without tagging it does nothing (the CLI warns you).
+The trigger is tag overlap — there are no rule files.
 
-```sh
-# Tagging (idempotent; `set` replaces the whole set; empty `set` clears)
-uv run tendril tag add MMINT-100 logo branding
-uv run tendril tag set MMINT-200 logo deal-placement
-uv run tendril tag list                 # all tagged issues
-uv run tendril tag list MMINT-100       # one issue
-uv run tendril tag list --json          # machine-readable, for LLM pipelines
-
-# Alerts
-uv run tendril alert add MMINT-100      # coworker's logo-alternatives issue
-uv run tendril alert list
-uv run tendril alert remove MMINT-100
-```
-
-In the TUI you can do all of this on the currently-open issue: `t` opens the tag editor, `A` toggles the alert marker.
-
-The `tag list --json` shape (`{key: [tags...]}`) is deliberate: hand a batch of cached issues to Claude or a local model, get back tag assignments, feed them back through `tag set KEY tag1 tag2 …` in a loop.
+See [docs/tags-and-alerts.md](docs/tags-and-alerts.md) for the full CLI (`tag add/remove/set/list`, `alert add/remove/list`), the `--json` output shape for LLM pipelines, and the TUI shortcuts.
 
 ## Feature flags
 
-The `f` binding is only useful once you tell tendril the custom-field id for feature flags. Find it, then add it to `~/.config/tendril/config.toml`:
+The `f` binding in the TUI is only useful once you set the custom-field id for feature flags:
 
 ```toml
 [fields]
 feature_flags = "customfield_10457"
 ```
 
-The field is assumed to be a JIRA labels-type custom field (payload shape `["flag_a", "flag_b"]`). Empty submit clears all flags.
+The field is assumed to be a JIRA labels-type custom field (payload shape `["flag_a", "flag_b"]`). Empty submit clears all flags. Full config layout: [docs/config.md](docs/config.md).
 
 ## Design notes
 
