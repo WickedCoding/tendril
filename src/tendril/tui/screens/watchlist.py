@@ -7,6 +7,7 @@ from textual.binding import Binding
 from textual.screen import Screen
 from textual.widgets import DataTable, Footer, Header, Static
 
+from tendril.db.users import format_user, resolve_display_names
 from tendril.sync.commands import (
     add_to_watchlist,
     list_all_issues,
@@ -68,6 +69,9 @@ class WatchlistScreen(Screen):
         total = 0
         with self.app.session_factory() as session:  # type: ignore[attr-defined]
             pairs = list_all_issues(session)
+            names = resolve_display_names(
+                session, (issue.assignee_account_id for issue, _ in pairs)
+            )
             for issue, is_watchlisted in pairs:
                 total += 1
                 if self._watchlist_only and not is_watchlisted:
@@ -87,7 +91,7 @@ class WatchlistScreen(Screen):
                     Text(issue.key, style=style),
                     Text(issue.status or "—", style=style),
                     Text((issue.summary or "").strip() or "—", style=style),
-                    Text(issue.assignee_account_id or "—", style=style),
+                    Text(format_user(issue.assignee_account_id, names), style=style),
                     Text(updated, style=style),
                 ]
                 table.add_row(*cells, key=issue.key)

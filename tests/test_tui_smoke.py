@@ -514,6 +514,46 @@ async def test_mine_filter_hides_child_rows_in_issue_detail_links(
 
 
 @pytest.mark.asyncio
+async def test_watchlist_shows_assignee_display_name_not_account_id(
+    isolated_xdg: Path, load_fixture
+) -> None:
+    """PROJ-1's assignee cell must render the cached User's display name."""
+    _seed(load_fixture)
+
+    app = TendrilApp(Config(jira=JiraConfig(url="https://x", email="me@x")))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        from textual.widgets import DataTable
+        table = app.screen.query_one(DataTable)
+        row = table.get_row("PROJ-1")
+        # Column order: ★, key, status, summary, assignee, updated
+        assignee_cell = str(row[4])
+        assert "Alice Alignment" in assignee_cell
+        assert "acc-alice" not in assignee_cell
+
+
+@pytest.mark.asyncio
+async def test_issue_detail_meta_shows_display_names(
+    isolated_xdg: Path, load_fixture
+) -> None:
+    """Assignee and reporter in the meta line resolve to display names when cached."""
+    _seed(load_fixture)
+
+    app = TendrilApp(Config(jira=JiraConfig(url="https://x", email="me@x")))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        from textual.widgets import DataTable, Label
+        table = app.screen.query_one(DataTable)
+        _cursor_to_key(table, "PROJ-1")
+        await pilot.press("enter")
+        await pilot.pause()
+
+        meta = str(app.screen.query_one("#meta-line-1", Label).render())
+        assert "Alice Alignment" in meta
+        assert "acc-alice" not in meta
+
+
+@pytest.mark.asyncio
 async def test_palette_lists_sync_commands(isolated_xdg: Path) -> None:
     """Command-palette provider yields the prompt entry plus one per synced project.
 

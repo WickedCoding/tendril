@@ -22,6 +22,7 @@ from sqlalchemy import select
 from tendril.alerts import ops as alert_ops
 from tendril.alerts.matcher import find_surfaces
 from tendril.db.models import Comment, Issue, IssueLink, LinkType
+from tendril.db.users import format_user, resolve_display_names
 from tendril.jira.render import render_description
 from tendril.operations import ops as write_ops
 from tendril.tui.screens.comment_modal import CommentModal
@@ -127,9 +128,13 @@ class IssueDetailScreen(Screen):
                 f"[bold]{issue.key}[/bold] · {issue.status or '—'} · {issue.issuetype or '—'}{alert_suffix}\n"
                 f"[b]{issue.summary or ''}[/b]"
             )
+            meta_names = resolve_display_names(
+                session,
+                (issue.assignee_account_id, issue.reporter_account_id),
+            )
             self.query_one("#meta-line-1", Label).update(
-                f"assignee: {issue.assignee_account_id or '—'}   "
-                f"reporter: {issue.reporter_account_id or '—'}   "
+                f"assignee: {format_user(issue.assignee_account_id, meta_names)}   "
+                f"reporter: {format_user(issue.reporter_account_id, meta_names)}   "
                 f"parent: {issue.parent_key or '—'}"
             )
             self.query_one("#meta-line-2", Label).update(
@@ -146,7 +151,12 @@ class IssueDetailScreen(Screen):
             comments = session.scalars(
                 select(Comment).where(Comment.issue_key == self.issue_key).order_by(Comment.created)
             ).all()
-            self.query_one("#comments-body", Static).update(_format_comments(comments))
+            comment_names = resolve_display_names(
+                session, (c.author_account_id for c in comments)
+            )
+            self.query_one("#comments-body", Static).update(
+                _format_comments(comments, comment_names)
+            )
 
             links = session.scalars(
                 select(IssueLink).where(IssueLink.source_key == self.issue_key)
@@ -493,12 +503,13 @@ def _status_cell(target_key: str, summaries: dict[str, tuple[str | None, str | N
         return "[dim]not synced[/dim]"
     return summaries[target_key][1] or "[dim]—[/dim]"
 
-def _format_comments(comments: list[Comment]) -> str:
+def _format_comments(comments: list[Comment], names: dict[str, str]) -> str:
     if not comments:
         return "[no comments]"
     lines: list[str] = []
     for c in comments:
-        header = f"— {c.author_account_id or 'unknown'} · {c.created or ''}"
+        author = format_user(c.author_account_id, names) if c.author_account_id else "unknown"
+        header = f"— {author} · {c.created or ''}"
         lines.append(header)
         lines.append(c.body or "")
         lines.append("")
