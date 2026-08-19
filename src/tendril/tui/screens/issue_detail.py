@@ -429,6 +429,7 @@ class IssueDetailScreen(Screen):
                 shared_tags=shared_tags,
                 link_types=link_types,
                 default_link_type=default,
+                description=render_description(target_issue.raw_json),
             ),
             after,
         )

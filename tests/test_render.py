@@ -272,3 +272,34 @@ class TestDispatcher:
         assert out is not None
         assert "Hi" in out.plain
         assert "body" in out.plain
+
+
+class TestShortenDescription:
+    def test_none_pass_through(self) -> None:
+        from rich.text import Text
+
+        from tendril.tui.screens.surface_card_modal import _shorten_description
+
+        assert _shorten_description(None) is None
+        assert _shorten_description(Text("   \n\n   ")) is None
+
+    def test_short_text_returned_intact(self) -> None:
+        from rich.text import Text
+
+        from tendril.tui.screens.surface_card_modal import _shorten_description
+
+        out = _shorten_description(Text("line one\nline two"))
+        assert out is not None
+        assert out.plain == "line one\nline two"
+
+    def test_long_text_capped_with_ellipsis(self) -> None:
+        from rich.text import Text
+
+        from tendril.tui.screens.surface_card_modal import _shorten_description
+
+        body = "\n".join(f"line {i}" for i in range(1, 21))
+        out = _shorten_description(Text(body), max_lines=5)
+        assert out is not None
+        lines = out.plain.split("\n")
+        assert lines[:5] == ["line 1", "line 2", "line 3", "line 4", "line 5"]
+        assert lines[-1] == "…"
