@@ -14,7 +14,6 @@ from tendril.sync.commands import (
     remove_from_watchlist,
 )
 from tendril.text import plural
-from tendril.tui.screens.add_modal import AddToWatchlistModal
 
 
 class WatchlistScreen(Screen):
@@ -144,18 +143,13 @@ class WatchlistScreen(Screen):
             self.app.push_screen(IssueDetailScreen(key))
 
     def action_add(self) -> None:
-        def _after(key: str | None) -> None:
-            if not key:
-                return
-            with self.app.session_factory() as session:  # type: ignore[attr-defined]
-                _, uncached = add_to_watchlist(session, [key])
-            self.reload()
-            if uncached:
-                self._set_status(
-                    f"Added {key}. Not in cache yet — sync the project or run `tendril sync issue {key}`."
-                )
-
-        self.app.push_screen(AddToWatchlistModal(prefill=self._cursor_key()), _after)
+        """Mark the highlighted issue as watchlisted. No cursor → no-op."""
+        key = self._cursor_key()
+        if not key:
+            return
+        with self.app.session_factory() as session:  # type: ignore[attr-defined]
+            add_to_watchlist(session, [key])
+        self.reload()
 
     def _cursor_key(self) -> str | None:
         table = self.query_one(DataTable)
@@ -166,11 +160,7 @@ class WatchlistScreen(Screen):
 
     def action_remove(self) -> None:
         """Drop the highlighted issue from the watchlist (the cached issue stays)."""
-        table = self.query_one(DataTable)
-        if table.row_count == 0:
-            return
-        row_key = table.coordinate_to_cell_key(table.cursor_coordinate).row_key
-        key = str(row_key.value) if row_key.value is not None else None
+        key = self._cursor_key()
         if not key:
             return
         with self.app.session_factory() as session:  # type: ignore[attr-defined]

@@ -587,22 +587,29 @@ async def test_palette_lists_sync_commands(isolated_xdg: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_add_modal_prefills_with_cursor_key(isolated_xdg: Path, load_fixture) -> None:
-    """Pressing `a` opens the modal with the highlighted issue's key already filled in."""
-    _seed(load_fixture)
+async def test_add_to_watchlist_via_keybinding(isolated_xdg: Path, load_fixture) -> None:
+    """Pressing `a` marks the highlighted issue as watchlisted — no modal, no cursor → no-op."""
+    engine = build_engine()
+    init_schema(engine)
+    with session_factory(engine)() as session:
+        upsert_issue(session, normalize_issue(load_fixture("issue_sample.json")))
+        upsert_issue(session, normalize_issue(load_fixture("issue_second.json")))
+        # Only PROJ-1 pre-watchlisted; PROJ-2 is the one we'll add via `a`.
+        add_to_watchlist(session, ["PROJ-1"])
+
     app = TendrilApp(Config(jira=JiraConfig(url="https://x", email="me@x")))
     async with app.run_test() as pilot:
         await pilot.pause()
-        from textual.widgets import DataTable, Input
+        from textual.widgets import DataTable
         table = app.screen.query_one(DataTable)
         _cursor_to_key(table, "PROJ-2")
 
         await pilot.press("a")
         await pilot.pause()
 
-        from tendril.tui.screens.add_modal import AddToWatchlistModal
-        assert isinstance(app.screen, AddToWatchlistModal)
-        assert app.screen.query_one(Input).value == "PROJ-2"
+        from tendril.db.models import WatchlistEntry
+        with app.session_factory() as session:
+            assert session.get(WatchlistEntry, "PROJ-2") is not None
 
 
 @pytest.mark.asyncio
