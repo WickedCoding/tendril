@@ -127,40 +127,71 @@ def whoami() -> None:
 
 
 @sync_app.command("issue")
-def sync_issue_cmd(key: str) -> None:
-    """Fetch a single JIRA issue and upsert it into the local cache."""
+def sync_issue_cmd(
+    keys: list[str] = typer.Argument(..., help="One or more JIRA issue keys."),
+) -> None:
+    """Fetch one or more JIRA issues and upsert them into the local cache.
+
+    Each key is synced independently — a failure on one key logs the error
+    and the batch continues. Exit code is 2 if any key failed.
+    """
     cfg = _load_config_or_die()
     client = jira_client.build(cfg)
     session, close = _open_session()
+    failures = 0
     try:
-        row = sync_ops.sync_issue(client, session, key, cfg=cfg)
-        if row.key != key:
-            console.print(
-                f"[yellow]Note:[/yellow] {key} has been moved to [bold]{row.key}[/bold]. "
-                "Watchlist entry migrated."
-            )
-        console.print(f"[green]Synced[/green] {row.key} — {row.summary}")
-    except Exception as e:
-        err_console.print(f"[red]Sync failed:[/red] {e}")
-        raise typer.Exit(2)
+        for key in keys:
+            try:
+                row = sync_ops.sync_issue(client, session, key, cfg=cfg)
+            except Exception as e:
+                err_console.print(f"[red]Sync failed[/red] for {key}: {e}")
+                failures += 1
+                continue
+            if row.key != key:
+                console.print(
+                    f"[yellow]Note:[/yellow] {key} has been moved to [bold]{row.key}[/bold]. "
+                    "Watchlist entry migrated."
+                )
+            console.print(f"[green]Synced[/green] {row.key} — {row.summary}")
     finally:
         close()
+
+    if failures:
+        err_console.print(f"[red]{plural(failures, 'issue')} failed to sync.[/red]")
+        raise typer.Exit(2)
 
 
 @sync_app.command("project")
-def sync_project_cmd(project_key: str) -> None:
-    """Fetch every issue in a JIRA project into the local cache."""
+def sync_project_cmd(
+    project_keys: list[str] = typer.Argument(..., help="One or more JIRA project keys."),
+) -> None:
+    """Fetch every issue in one or more JIRA projects into the local cache.
+
+    Each project is synced independently — a failure on one project logs the
+    error and the batch continues. Exit code is 2 if any project failed.
+    """
     cfg = _load_config_or_die()
     client = jira_client.build(cfg)
     session, close = _open_session()
+    failures = 0
     try:
-        rows = sync_ops.sync_project(client, session, project_key, cfg=cfg)
-        console.print(f"[green]Synced[/green] {plural(len(rows), 'issue')} from project [bold]{project_key}[/bold].")
-    except Exception as e:
-        err_console.print(f"[red]Sync failed:[/red] {e}")
-        raise typer.Exit(2)
+        for project_key in project_keys:
+            console.print(f"[dim]Syncing project[/dim] [bold]{project_key}[/bold]…")
+            try:
+                rows = sync_ops.sync_project(client, session, project_key, cfg=cfg)
+            except Exception as e:
+                err_console.print(f"[red]Sync failed[/red] for {project_key}: {e}")
+                failures += 1
+                continue
+            console.print(
+                f"[green]Synced[/green] {plural(len(rows), 'issue')} from project [bold]{project_key}[/bold]."
+            )
     finally:
         close()
+
+    if failures:
+        err_console.print(f"[red]{plural(failures, 'project')} failed to sync.[/red]")
+        raise typer.Exit(2)
 
 
 @sync_app.command("incremental")
