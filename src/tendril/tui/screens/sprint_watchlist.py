@@ -16,6 +16,7 @@ from tendril.sync.commands import (
     remove_from_watchlist,
 )
 from tendril.text import plural
+from tendril.tui.sorting import SortColumn, sort_rows
 
 
 class SprintWatchlistScreen(Screen):
@@ -35,9 +36,21 @@ class SprintWatchlistScreen(Screen):
         Binding("q", "pop", "Back"),
     ]
 
+    _SORT_COLUMNS = (
+        SortColumn("watchlisted", "★"),
+        SortColumn("key", "key"),
+        SortColumn("status", "status"),
+        SortColumn("summary", "summary"),
+        SortColumn("assignee", "assignee"),
+        SortColumn("sprint", "sprint"),
+        SortColumn("updated", "updated"),
+    )
+
     def __init__(self) -> None:
         super().__init__()
         self._mine_only = False
+        self._sort_key: str | None = None
+        self._sort_desc: bool = False
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -67,7 +80,7 @@ class SprintWatchlistScreen(Screen):
         me = self._me()
         mine_active = self._mine_only and me is not None
 
-        shown = 0
+        rows: list[dict] = []
         with self.app.session_factory() as session:  # type: ignore[attr-defined]
             pairs = list_sprint_issues(session)
             names = resolve_display_names(
@@ -79,23 +92,33 @@ class SprintWatchlistScreen(Screen):
             for issue, sprint in pairs:
                 if mine_active and issue.assignee_account_id != me:
                     continue
-                is_watchlisted = issue.key in watchlisted
-                style = accent if is_watchlisted else Style()
-                marker = "★" if is_watchlisted else " "
-                updated = (
-                    issue.updated.strftime("%Y-%m-%d %H:%M") if issue.updated else "—"
-                )
-                table.add_row(
-                    Text(marker, style=style),
-                    Text(issue.key, style=style),
-                    Text(issue.status or "—", style=style),
-                    Text((issue.summary or "").strip() or "—", style=style),
-                    Text(format_user(issue.assignee_account_id, names), style=style),
-                    Text(sprint.name, style=style),
-                    Text(updated, style=style),
-                    key=f"{issue.key}:{sprint.id}",
-                )
-                shown += 1
+                rows.append({
+                    "issue": issue,
+                    "sprint": sprint,
+                    "watchlisted": issue.key in watchlisted,
+                    "assignee_display": format_user(issue.assignee_account_id, names),
+                })
+
+        rows = self._apply_sort(rows)
+        for r in rows:
+            issue = r["issue"]
+            sprint = r["sprint"]
+            is_watchlisted = r["watchlisted"]
+            style = accent if is_watchlisted else Style()
+            marker = "★" if is_watchlisted else " "
+            updated = (
+                issue.updated.strftime("%Y-%m-%d %H:%M") if issue.updated else "—"
+            )
+            table.add_row(
+                Text(marker, style=style),
+                Text(issue.key, style=style),
+                Text(issue.status or "—", style=style),
+                Text((issue.summary or "").strip() or "—", style=style),
+                Text(r["assignee_display"], style=style),
+                Text(sprint.name, style=style),
+                Text(updated, style=style),
+                key=f"{issue.key}:{sprint.id}",
+            )
 
         total = len(pairs)
         if not pairs:
@@ -104,7 +127,33 @@ class SprintWatchlistScreen(Screen):
                 "and make sure `[fields].sprint` is set in config.toml."
             )
         else:
-            self._set_status(self._status_text(shown, total))
+            self._set_status(self._status_text(len(rows), total))
+
+    _SORT_GETTERS = {
+        "watchlisted": lambda r: r["watchlisted"],
+        "key": lambda r: r["issue"].key,
+        "status": lambda r: r["issue"].status,
+        "summary": lambda r: (r["issue"].summary or "").strip() or None,
+        "assignee": lambda r: r["assignee_display"] or None,
+        "sprint": lambda r: r["sprint"].name,
+        "updated": lambda r: r["issue"].updated,
+    }
+
+    def _apply_sort(self, rows: list[dict]) -> list[dict]:
+        if not self._sort_key:
+            return rows
+        getter = self._SORT_GETTERS.get(self._sort_key)
+        if getter is None:
+            return rows
+        return sort_rows(rows, getter, self._sort_desc)
+
+    def sort_options(self):
+        return self._SORT_COLUMNS
+
+    def apply_sort(self, key: str, descending: bool) -> None:
+        self._sort_key = key
+        self._sort_desc = descending
+        self.reload()
 
     def _status_text(self, shown: int, total: int) -> str:
         filters = []

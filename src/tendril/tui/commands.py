@@ -7,6 +7,7 @@ from textual.command import DiscoveryHit, Hit, Hits, Provider
 
 from tendril.db.models import ProjectSyncState
 from tendril.tui.screens.project_modal import ProjectKeyModal
+from tendril.tui.sorting import SortableTable
 
 
 class SyncCommands(Provider):
@@ -64,4 +65,58 @@ class SyncCommands(Provider):
                     matcher.highlight(label),
                     partial(self._sync, key),
                     help=f"Refresh all issues in project {key}.",
+                )
+
+
+class SortCommands(Provider):
+    """Sort entries for whichever sortable table the current screen exposes.
+
+    The active screen — the top of the app's screen stack — is asked for its
+    columns via the SortableTable protocol; if it doesn't implement one, the
+    provider yields nothing and the palette shows no sort options.
+    """
+
+    def _sortable(self) -> SortableTable | None:
+        # `self.screen` is the screen the palette was summoned from — using
+        # `self.app.screen` here would return the palette itself.
+        screen = self.screen
+        return screen if isinstance(screen, SortableTable) else None
+
+    def _apply(self, screen: SortableTable, key: str, descending: bool) -> None:
+        screen.apply_sort(key, descending)
+
+    def _entries(self, screen: SortableTable) -> list[tuple[str, str, bool]]:
+        """`(label, column_key, descending)` for every column × direction."""
+        out: list[tuple[str, str, bool]] = []
+        for col in screen.sort_options():
+            out.append((f"Sort by {col.label} ↑", col.key, False))
+            out.append((f"Sort by {col.label} ↓", col.key, True))
+        return out
+
+    async def discover(self) -> Hits:
+        screen = self._sortable()
+        if screen is None:
+            return
+        for label, key, desc in self._entries(screen):
+            yield DiscoveryHit(
+                label,
+                partial(self._apply, screen, key, desc),
+                help=f"Sort the current table by {key} "
+                f"{'descending' if desc else 'ascending'}.",
+            )
+
+    async def search(self, query: str) -> Hits:
+        screen = self._sortable()
+        if screen is None:
+            return
+        matcher = self.matcher(query)
+        for label, key, desc in self._entries(screen):
+            score = matcher.match(label)
+            if score > 0:
+                yield Hit(
+                    score,
+                    matcher.highlight(label),
+                    partial(self._apply, screen, key, desc),
+                    help=f"Sort the current table by {key} "
+                    f"{'descending' if desc else 'ascending'}.",
                 )

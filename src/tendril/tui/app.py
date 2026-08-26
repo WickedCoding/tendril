@@ -14,7 +14,7 @@ from tendril.db.models import ProjectSyncState
 from tendril.jira import client as jira_client
 from tendril.sync.commands import incremental_sync, sync_issue, sync_project
 from tendril.text import plural
-from tendril.tui.commands import SyncCommands
+from tendril.tui.commands import SortCommands, SyncCommands
 from tendril.tui.screens.watchlist import WatchlistScreen
 
 
@@ -22,7 +22,7 @@ class TendrilApp(App):
     """Textual app root. Holds the SQLAlchemy session factory and JIRA client."""
 
     TITLE = "tendril"
-    COMMANDS = App.COMMANDS | {SyncCommands}
+    COMMANDS = App.COMMANDS | {SyncCommands, SortCommands}
     BINDINGS = [
         Binding("/", "open_search", "Search", show=False),
         Binding("S", "open_sprint_watchlist", "Sprint", show=False),

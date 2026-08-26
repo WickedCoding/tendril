@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Command palette (`Ctrl+P`) now offers per-column sort entries for the active table — watchlist, sprint watchlist, and issue-detail Links tab. Each column exposes ascending and descending entries; the choice survives reloads and syncs.
+
 ## [1.2.3] - 2026-08-26
 
 ### Added

@@ -30,6 +30,7 @@ from tendril.tui.screens.flags_modal import FlagsModal
 from tendril.tui.screens.link_modal import LinkModal
 from tendril.tui.screens.surface_card_modal import SurfaceCardModal
 from tendril.tui.screens.tags_modal import TagsModal
+from tendril.tui.sorting import SortColumn, sort_rows
 
 
 class IssueDetailScreen(Screen):
@@ -64,12 +65,20 @@ class IssueDetailScreen(Screen):
     #links-table { height: 1fr; }
     """
 
+    _LINK_SORT_COLUMNS = (
+        SortColumn("linked_item", "linked item"),
+        SortColumn("title", "title"),
+        SortColumn("status", "status"),
+    )
+
     def __init__(self, issue_key: str) -> None:
         super().__init__()
         self.issue_key = issue_key
         self._parent_key: str | None = None
         self._surfaces: list[tuple[Issue, list[str]]] = []
         self._mine_only = False
+        self._sort_key: str | None = None
+        self._sort_desc: bool = False
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -189,26 +198,48 @@ class IssueDetailScreen(Screen):
             me = self._me()
             mine_active = self._mine_only and me is not None
 
+            link_rows: list[dict] = []
             for link in links:
                 if mine_active:
                     entry = summaries.get(link.target_key)
                     # Uncached target: we can't know its assignee; hide when filtering to mine.
                     if entry is None or entry[2] != me:
                         continue
-                table.add_row(
-                    _linked_item_cell(link.link_type, link.direction, link.target_key, link_type_phrases),
-                    _title_cell(link.target_key, summaries),
-                    _status_cell(link.target_key, summaries),
-                    key=f"link:{link.id}",
-                )
+                entry = summaries.get(link.target_key)
+                title_val = entry[0] if entry else None
+                status_val = entry[1] if entry else None
+                link_rows.append({
+                    "row_key": f"link:{link.id}",
+                    "linked_item_cell": _linked_item_cell(
+                        link.link_type, link.direction, link.target_key, link_type_phrases
+                    ),
+                    "title_cell": _title_cell(link.target_key, summaries),
+                    "status_cell": _status_cell(link.target_key, summaries),
+                    "linked_item_sort": _linked_item_cell(
+                        link.link_type, link.direction, link.target_key, link_type_phrases
+                    ),
+                    "title_sort": title_val,
+                    "status_sort": status_val,
+                })
             for child in children:
                 if mine_active and child.assignee_account_id != me:
                     continue
+                link_rows.append({
+                    "row_key": f"child:{child.key}",
+                    "linked_item_cell": f"contains {child.key}",
+                    "title_cell": child.summary or "[dim]—[/dim]",
+                    "status_cell": child.status or "[dim]-[/dim]",
+                    "linked_item_sort": f"contains {child.key}",
+                    "title_sort": child.summary,
+                    "status_sort": child.status,
+                })
+
+            for r in self._apply_link_sort(link_rows):
                 table.add_row(
-                    f"contains {child.key}",
-                    child.summary or "[dim]—[/dim]",
-                    child.status or "[dim]-[/dim]",
-                    key=f"child:{child.key}",
+                    r["linked_item_cell"],
+                    r["title_cell"],
+                    r["status_cell"],
+                    key=r["row_key"],
                 )
 
             self.query_one("#flags-body", Static).update(self._render_flags(issue.raw_json))
@@ -370,6 +401,32 @@ class IssueDetailScreen(Screen):
     def _me(self) -> str | None:
         cfg = getattr(self.app, "cfg", None)
         return getattr(getattr(cfg, "jira", None), "account_id", None)
+
+    _LINK_SORT_GETTERS = {
+        "linked_item": lambda r: r["linked_item_sort"],
+        "title": lambda r: r["title_sort"],
+        "status": lambda r: r["status_sort"],
+    }
+
+    def _apply_link_sort(self, rows: list[dict]) -> list[dict]:
+        if not self._sort_key:
+            return rows
+        getter = self._LINK_SORT_GETTERS.get(self._sort_key)
+        if getter is None:
+            return rows
+        return sort_rows(rows, getter, self._sort_desc)
+
+    def sort_options(self):
+        # Only the Links tab has a sortable table on this screen.
+        tabs = self.query_one(TabbedContent)
+        if tabs.active != "tab-links":
+            return ()
+        return self._LINK_SORT_COLUMNS
+
+    def apply_sort(self, key: str, descending: bool) -> None:
+        self._sort_key = key
+        self._sort_desc = descending
+        self.reload()
 
     def check_action(self, action: str, parameters: tuple) -> bool | None:
         if action == "open_parent":
