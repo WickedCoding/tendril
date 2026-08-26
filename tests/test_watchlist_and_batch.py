@@ -104,7 +104,7 @@ def test_list_watchlist_pairs_entries_with_cached_issues(
     add_to_watchlist(session, ["PROJ-1", "PROJ-2"])
 
     pairs = list_watchlist(session)
-    keys_seen = {entry.issue_key: (issue is not None) for entry, issue in pairs}
+    keys_seen = {entry.issue_key: (issue is not None) for entry, issue, _ in pairs}
     assert keys_seen == {"PROJ-1": True, "PROJ-2": False}
 
 

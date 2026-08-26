@@ -237,6 +237,10 @@ def sync_link_types_cmd() -> None:
 def watchlist_add_cmd(
     keys: list[str] = typer.Argument(..., help="One or more JIRA issue keys."),
     note: str | None = typer.Option(None, "--note", "-n", help="Optional note attached to each entry."),
+    tags: list[str] = typer.Option(
+        [], "--tag", "-t",
+        help="Optional tag applied to each key (repeat to add several).",
+    ),
 ) -> None:
     """Add issue keys to the watchlist (idempotent).
 
@@ -245,7 +249,7 @@ def watchlist_add_cmd(
     """
     session, close = _open_session()
     try:
-        entries, uncached = sync_ops.add_to_watchlist(session, keys, note=note)
+        entries, uncached = sync_ops.add_to_watchlist(session, keys, note=note, tags=tags)
         console.print(f"[green]Watchlist size:[/green] {plural(len(entries), 'entry', 'entries')} after add.")
         if uncached:
             console.print(
@@ -283,13 +287,15 @@ def watchlist_list_cmd() -> None:
         table.add_column("status")
         table.add_column("summary")
         table.add_column("updated")
+        table.add_column("tags")
         table.add_column("note")
-        for entry, issue in entries:
+        for entry, issue, tags in entries:
             table.add_row(
                 entry.issue_key,
                 (issue.status if issue else "[dim]-not synced-[/dim]") or "-",
                 (issue.summary if issue else "") or "",
                 str(issue.updated) if issue and issue.updated else "-",
+                ", ".join(tags),
                 entry.note or "",
             )
         console.print(table)

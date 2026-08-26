@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from tendril.alerts.ops import add_tags, list_tags_for
 from tendril.config import Config
 from tendril.db.models import (
     Issue, IssueSprint, IssueTag, LinkType, ProjectSyncState, Sprint, WatchlistEntry,
@@ -171,11 +172,16 @@ def add_to_watchlist(
     session: Session,
     keys: list[str],
     note: str | None = None,
+    tags: list[str] | None = None,
 ) -> tuple[list[WatchlistEntry], list[str]]:
     """Add keys to the watchlist. Idempotent.
 
     Returns (entries, uncached_keys). `uncached_keys` are keys the caller may
     want to `sync issue KEY` — the watchlist itself does not fetch.
+
+    `tags` are applied to every key via `alerts.ops.add_tags` (idempotent per
+    (key, tag)). Tag rows live on the issue, not the watchlist entry, so they
+    survive removing and re-adding a key.
     """
     entries: list[WatchlistEntry] = []
     uncached: list[str] = []
@@ -197,6 +203,9 @@ def add_to_watchlist(
         if session.get(Issue, key) is None:
             uncached.append(key)
     session.commit()
+    if tags:
+        for key in keys:
+            add_tags(session, key, tags)
     return entries, uncached
 
 
@@ -212,15 +221,17 @@ def remove_from_watchlist(session: Session, keys: list[str]) -> int:
     return deleted
 
 
-def list_watchlist(session: Session) -> list[tuple[WatchlistEntry, Issue | None]]:
-    """Return watchlist entries (in user-defined order) paired with their cached Issue if present."""
+def list_watchlist(
+    session: Session,
+) -> list[tuple[WatchlistEntry, Issue | None, list[str]]]:
+    """Return watchlist entries (in user-defined order) paired with their cached Issue and tags."""
     entries = list(session.scalars(
         select(WatchlistEntry).order_by(WatchlistEntry.position, WatchlistEntry.added_at)
     ).all())
-    result: list[tuple[WatchlistEntry, Issue | None]] = []
+    result: list[tuple[WatchlistEntry, Issue | None, list[str]]] = []
     for entry in entries:
         issue = session.get(Issue, entry.issue_key)
-        result.append((entry, issue))
+        result.append((entry, issue, list_tags_for(session, entry.issue_key)))
     return result
 
 
