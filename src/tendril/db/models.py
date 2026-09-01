@@ -91,15 +91,6 @@ class IssueTag(Base):
     tag: Mapped[str] = mapped_column(String, primary_key=True)
 
 
-class IssueAlert(Base):
-    """Marker: this issue should surface as a card when another cached issue shares any of its tags."""
-
-    __tablename__ = "issue_alert"
-
-    issue_key: Mapped[str] = mapped_column(String, primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-
-
 class Sprint(Base):
     """One JIRA sprint. The PK is JIRA's global sprint id.
 

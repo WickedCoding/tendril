@@ -19,9 +19,9 @@ from textual.widgets.option_list import Option
 from rich.text import Text
 from sqlalchemy import select
 
-from tendril.alerts import ops as alert_ops
-from tendril.alerts.matcher import find_surfaces
 from tendril.db.models import Comment, Issue, IssueLink, LinkType
+from tendril.tags import ops as tag_ops
+from tendril.tags.matcher import find_surfaces
 from tendril.db.users import format_user, resolve_display_names
 from tendril.jira.render import render_description
 from tendril.operations import ops as write_ops
@@ -41,7 +41,6 @@ class IssueDetailScreen(Screen):
         Binding("x", "remove_link", "Remove link"),
         Binding("f", "edit_flags", "Flags"),
         Binding("t", "edit_tags", "Tags"),
-        Binding("A", "toggle_alert", "Alert on/off"),
         Binding("s", "focus_surfaces", "Surfaces"),
         Binding("m", "toggle_mine_filter", "Mine (links)"),
         Binding("p", "open_parent", "Parent"),
@@ -129,12 +128,11 @@ class IssueDetailScreen(Screen):
             self._parent_key = issue.parent_key
             self.refresh_bindings()
 
-            alert_suffix = " · [yellow]ALERT[/yellow]" if alert_ops.is_alert(session, self.issue_key) else ""
-            tags = alert_ops.list_tags_for(session, self.issue_key)
+            tags = tag_ops.list_tags_for(session, self.issue_key)
             tag_line = f"   tags: {', '.join('#' + t for t in tags)}" if tags else ""
 
             self.query_one("#title", Label).update(
-                f"[bold]{issue.key}[/bold] · {issue.status or '—'} · {issue.issuetype or '—'}{alert_suffix}\n"
+                f"[bold]{issue.key}[/bold] · {issue.status or '—'} · {issue.issuetype or '—'}\n"
                 f"[b]{issue.summary or ''}[/b]"
             )
             meta_names = resolve_display_names(
@@ -352,33 +350,16 @@ class IssueDetailScreen(Screen):
 
     def action_edit_tags(self) -> None:
         with self.app.session_factory() as session:  # type: ignore[attr-defined]
-            current = alert_ops.list_tags_for(session, self.issue_key)
+            current = tag_ops.list_tags_for(session, self.issue_key)
 
         def after(values: list[str] | None) -> None:
             if values is None:
                 return
             with self.app.session_factory() as session:  # type: ignore[attr-defined]
-                alert_ops.set_tags(session, self.issue_key, values)
+                tag_ops.set_tags(session, self.issue_key, values)
             self.reload()
 
         self.app.push_screen(TagsModal(current), after)
-
-    def action_toggle_alert(self) -> None:
-        with self.app.session_factory() as session:  # type: ignore[attr-defined]
-            if alert_ops.is_alert(session, self.issue_key):
-                alert_ops.unmark_alert(session, self.issue_key)
-                self.app.notify(f"{self.issue_key} · alert off")
-            else:
-                alert_ops.mark_alert(session, self.issue_key)
-                tags = alert_ops.list_tags_for(session, self.issue_key)
-                if tags:
-                    self.app.notify(f"{self.issue_key} · alert on")
-                else:
-                    self.app.notify(
-                        f"{self.issue_key} · alert on — add tags with `t` so it can fire.",
-                        severity="warning",
-                    )
-        self.reload()
 
     def action_focus_surfaces(self) -> None:
         option_list = self.query_one("#surfaces-list", OptionList)

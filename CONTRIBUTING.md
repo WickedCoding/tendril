@@ -43,7 +43,7 @@ src/tendril/
   jira/             thin atlassian-python-api wrapper + DTOs
   sync/             fetch → normalize → upsert; sync_issue, sync_project, incremental
   operations/       single write layer (JIRA write → refetch)
-  alerts/           local-only tags + alerts; matcher for the Surfaces panel
+  tags/             local-only tags; matcher for the Surfaces panel
   tui/              Textual app, screens, modals, command-palette provider
 ```
 

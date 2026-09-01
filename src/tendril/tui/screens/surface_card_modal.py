@@ -38,10 +38,10 @@ def _shorten_description(text: Text | None, max_lines: int = _DESCRIPTION_MAX_LI
 
 
 class SurfaceCardModal(ModalScreen[tuple[str, str] | None]):
-    """Detail view of a surfaced alert issue with a link-type chooser.
+    """Detail view of a surfaced issue with a link-type chooser.
 
     Dismisses with `(type_name, direction)` on submit, or None on cancel.
-    The caller already knows the source (viewed issue) and target (alert-owning issue),
+    The caller already knows the source (viewed issue) and target (the surfaced issue),
     so this modal only collects the link type + direction.
     """
 

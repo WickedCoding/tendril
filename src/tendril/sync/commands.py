@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from tendril.alerts.ops import add_tags, list_tags_for
+from tendril.tags.ops import add_tags, list_tags_for
 from tendril.config import Config
 from tendril.db.models import (
     Issue, IssueSprint, IssueTag, LinkType, ProjectSyncState, Sprint, WatchlistEntry,
@@ -179,7 +179,7 @@ def add_to_watchlist(
     Returns (entries, uncached_keys). `uncached_keys` are keys the caller may
     want to `sync issue KEY` — the watchlist itself does not fetch.
 
-    `tags` are applied to every key via `alerts.ops.add_tags` (idempotent per
+    `tags` are applied to every key via `tags.ops.add_tags` (idempotent per
     (key, tag)). Tag rows live on the issue, not the watchlist entry, so they
     survive removing and re-adding a key.
     """

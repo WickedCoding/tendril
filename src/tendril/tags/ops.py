@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from tendril.db.models import IssueAlert, IssueTag
+from tendril.db.models import IssueTag
 
 
 def _normalize(tags: list[str]) -> list[str]:
@@ -76,32 +74,3 @@ def list_all_tagged(session: Session) -> list[tuple[str, list[str]]]:
     ):
         grouped.setdefault(issue_key, []).append(tag)
     return [(k, grouped[k]) for k in sorted(grouped)]
-
-
-def mark_alert(session: Session, key: str) -> IssueAlert:
-    """Mark an issue as an alert. Idempotent."""
-    existing = session.get(IssueAlert, key)
-    if existing is not None:
-        return existing
-    row = IssueAlert(issue_key=key, created_at=datetime.now(timezone.utc))
-    session.add(row)
-    session.commit()
-    return row
-
-
-def unmark_alert(session: Session, key: str) -> bool:
-    """Remove the alert marker. Returns True if a row was deleted."""
-    existing = session.get(IssueAlert, key)
-    if existing is None:
-        return False
-    session.delete(existing)
-    session.commit()
-    return True
-
-
-def list_alerts(session: Session) -> list[IssueAlert]:
-    return list(session.scalars(select(IssueAlert).order_by(IssueAlert.issue_key)).all())
-
-
-def is_alert(session: Session, key: str) -> bool:
-    return session.get(IssueAlert, key) is not None

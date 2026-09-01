@@ -7,8 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-01
+
 ### Added
 - Command palette (`Ctrl+P`) now offers per-column sort entries for the active table — watchlist, sprint watchlist, and issue-detail Links tab. Each column exposes ascending and descending entries; the choice survives reloads and syncs.
+
+### Removed
+- The `alert` marker and its CLI (`tendril alert add/remove/list`) are gone. The Surfaces panel now fires on any shared tag by default — every tagged issue is effectively an "alert." The `A` binding on the Issue Detail screen is retired, and the `issue_alert` table is dropped by migration `0002`.
 
 ## [1.2.3] - 2026-08-26
 

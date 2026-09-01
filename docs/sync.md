@@ -1,6 +1,6 @@
 # tendril sync commands
 
-Sync pulls JIRA issues into the local SQLite cache. Everything else in tendril — the TUI, the watchlist, tags, alerts — reads from that cache. The intended workflow is `sync project KEY` once per project, then `sync incremental` from there.
+Sync pulls JIRA issues into the local SQLite cache. Everything else in tendril — the TUI, the watchlist, tags — reads from that cache. The intended workflow is `sync project KEY` once per project, then `sync incremental` from there.
 
 ## `tendril sync project KEY`
 

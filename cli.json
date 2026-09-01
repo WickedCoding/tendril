@@ -1,0 +1,209 @@
+{
+  "commands": [
+    {
+      "name": "whoami",
+      "description": "Fetch and display the current JIRA user (verifies auth).",
+      "parameters": []
+    },
+    {
+      "name": "show",
+      "description": "Print an issue from the local cache.",
+      "parameters": [
+        {
+          "name": "key",
+          "kind": "argument",
+          "type": "str",
+          "description": "JIRA issue key.",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "config init",
+      "description": "Interactively write ~/.config/tendril/config.toml and store the API token.",
+      "parameters": []
+    },
+    {
+      "name": "config show",
+      "description": "Print the current configuration (token is never printed).",
+      "parameters": []
+    },
+    {
+      "name": "sync issue",
+      "description": "Fetch one or more JIRA issues and upsert them into the local cache.",
+      "parameters": [
+        {
+          "name": "keys",
+          "kind": "argument",
+          "type": "list[str]",
+          "description": "One or more JIRA issue keys.",
+          "optional": false,
+          "variadic": true
+        }
+      ]
+    },
+    {
+      "name": "sync project",
+      "description": "Fetch every issue in one or more JIRA projects into the local cache.",
+      "parameters": [
+        {
+          "name": "project_keys",
+          "kind": "argument",
+          "type": "list[str]",
+          "description": "One or more JIRA project keys.",
+          "optional": false,
+          "variadic": true
+        }
+      ]
+    },
+    {
+      "name": "sync incremental",
+      "description": "Refetch issues updated since the last incremental sync, across all previously synced projects.",
+      "parameters": []
+    },
+    {
+      "name": "sync link-types",
+      "description": "Fetch the JIRA instance's issue link types and replace the local cache.",
+      "parameters": []
+    },
+    {
+      "name": "watchlist add",
+      "description": "Add issue keys to the watchlist (idempotent).",
+      "parameters": [
+        {
+          "name": "keys",
+          "kind": "argument",
+          "type": "list[str]",
+          "description": "One or more JIRA issue keys.",
+          "optional": false,
+          "variadic": true
+        },
+        {
+          "name": "note",
+          "kind": "option",
+          "flags": ["--note", "-n"],
+          "type": "str",
+          "description": "Optional note attached to each entry.",
+          "optional": true,
+          "default": null
+        },
+        {
+          "name": "tags",
+          "kind": "option",
+          "flags": ["--tag", "-t"],
+          "type": "list[str]",
+          "description": "Optional tag applied to each key (repeat to add several).",
+          "optional": true,
+          "default": [],
+          "variadic": true
+        }
+      ]
+    },
+    {
+      "name": "watchlist remove",
+      "description": "Remove issue keys from the watchlist. The cached issue rows are left alone.",
+      "parameters": [
+        {
+          "name": "keys",
+          "kind": "argument",
+          "type": "list[str]",
+          "description": "One or more JIRA issue keys.",
+          "optional": false,
+          "variadic": true
+        }
+      ]
+    },
+    {
+      "name": "watchlist list",
+      "description": "Print the watchlist with cached issue metadata (run `sync watchlist` to populate).",
+      "parameters": []
+    },
+    {
+      "name": "tag add",
+      "description": "Add tags to a cached issue (idempotent). Tags are local — never pushed to JIRA.",
+      "parameters": [
+        {
+          "name": "key",
+          "kind": "argument",
+          "type": "str",
+          "description": "JIRA issue key.",
+          "optional": false
+        },
+        {
+          "name": "tags",
+          "kind": "argument",
+          "type": "list[str]",
+          "description": "One or more tags to add.",
+          "optional": false,
+          "variadic": true
+        }
+      ]
+    },
+    {
+      "name": "tag remove",
+      "description": "Remove tags from a cached issue.",
+      "parameters": [
+        {
+          "name": "key",
+          "kind": "argument",
+          "type": "str",
+          "description": "JIRA issue key.",
+          "optional": false
+        },
+        {
+          "name": "tags",
+          "kind": "argument",
+          "type": "list[str]",
+          "description": "One or more tags to remove.",
+          "optional": false,
+          "variadic": true
+        }
+      ]
+    },
+    {
+      "name": "tag set",
+      "description": "Replace the full tag set for an issue. The bulk-write an LLM would use.",
+      "parameters": [
+        {
+          "name": "key",
+          "kind": "argument",
+          "type": "str",
+          "description": "JIRA issue key.",
+          "optional": false
+        },
+        {
+          "name": "tags",
+          "kind": "argument",
+          "type": "list[str]",
+          "description": "Tags to assign. Omit to clear all tags.",
+          "optional": true,
+          "default": null,
+          "variadic": true
+        }
+      ]
+    },
+    {
+      "name": "tag list",
+      "description": "List tagged issues. `--json` for machine consumption (LLM pipelines).",
+      "parameters": [
+        {
+          "name": "key",
+          "kind": "argument",
+          "type": "str",
+          "description": "Limit to one issue key. Omit to list all tagged issues.",
+          "optional": true,
+          "default": null
+        },
+        {
+          "name": "json_out",
+          "kind": "option",
+          "flags": ["--json"],
+          "type": "bool",
+          "description": "Emit machine-readable JSON.",
+          "optional": true,
+          "default": false
+        }
+      ]
+    }
+  ]
+}
