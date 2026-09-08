@@ -39,6 +39,8 @@ Layered, one direction of dependency: `cli.py` / `tui/` → `operations/` and `s
 - **`operations/ops.py`** — the single write layer. Every write is `jira write → sync_issue(refetch)`. **No local mutation bypasses JIRA**; the cache stays honest by re-reading after every push.
 - **`tui/`** — Textual `App`, screens (`watchlist`, `issue_detail`), modals (comment / link / flags / add / project). All JIRA I/O in the TUI goes through `TendrilApp.run_worker(..., thread=True)` and marshals results back with `call_from_thread`. The Jira client is built lazily so the empty-cache first run doesn't hit the keyring.
 
+> [!info] Database schema is present in `.claude/docs/database.md`
+
 ## Invariants worth respecting
 
 - **Sync fills the cache; the watchlist is a marker on top.** Adding a watchlist key never fetches — if the key isn't cached, the CLI/TUI tells the user to `sync issue KEY`.
