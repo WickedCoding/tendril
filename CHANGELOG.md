@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-09-15
+
+### Changed
+- Sprint rollover target panel is now interactive: `PgUp`/`PgDn` on a focused row swaps it with its neighbour, letting you shape the exact order the target sprint will have after rollover. Arrows / `Home` / `End` keep native navigation; selection toggles still belong to the source panel. On confirm, a new `rank_issues` step pushes the panel's final order to JIRA via chunked `PUT /rest/agile/1.0/issue/rank` calls (bulk endpoint, chained for sprints of >50 issues) so JIRA's display order matches the preview. Persisted on `RolloverAttempt.target_order_keys` (migration `0004`) so a resume ranks identically to the first attempt.
+
 ## [1.4.0] - 2026-09-15
 
 ### Added
