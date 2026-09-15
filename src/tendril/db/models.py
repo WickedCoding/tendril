@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import Index, JSON, Date, DateTime, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Float, Index, JSON, Date, DateTime, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -41,6 +41,8 @@ class Issue(Base):
     updated: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     duedate: Mapped[date | None] = mapped_column(Date, nullable=True)
     parent_key: Mapped[str | None] = mapped_column(String, nullable=True)
+    story_points: Mapped[float | None] = mapped_column(Float, nullable=True)
+    skills: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     raw_json: Mapped[dict] = mapped_column(JSON, nullable=False)
     last_synced_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
@@ -136,3 +138,52 @@ class LinkType(Base):
     name: Mapped[str] = mapped_column(String, primary_key=True)
     outward: Mapped[str] = mapped_column(String, nullable=False)
     inward: Mapped[str] = mapped_column(String, nullable=False)
+
+
+# Rollover step labels — stored as strings in RolloverAttempt.completed_step so
+# the schema doesn't need to know about the enum. Ordering matters: each step
+# must complete before the next begins.
+ROLLOVER_STEP_MOVE = "move_issues"
+ROLLOVER_STEP_CLOSE = "close_source"
+ROLLOVER_STEP_START = "start_target"
+ROLLOVER_STEPS_ORDER: tuple[str, ...] = (
+    ROLLOVER_STEP_MOVE,
+    ROLLOVER_STEP_CLOSE,
+    ROLLOVER_STEP_START,
+)
+
+
+class RolloverAttempt(Base):
+    """In-flight or failed rollover state. One row per source sprint.
+
+    Deleted on success; a lingering row on re-entry signals a partial rollover
+    that the user can resume from `completed_step + 1`. `moved_issue_keys` tracks
+    partial completion inside the move step (multiple JIRA calls, one per batch).
+    """
+
+    __tablename__ = "rollover_attempt"
+
+    source_sprint_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    target_sprint_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    selected_issue_keys: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    moved_issue_keys: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    completed_step: Mapped[str | None] = mapped_column(String, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class RolloverLog(Base):
+    """Successful rollover history. Sprint names are denormalized so the log
+    stays readable even if the sprint rows are later evicted from the cache.
+    """
+
+    __tablename__ = "rollover_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    source_sprint_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_sprint_name: Mapped[str] = mapped_column(String, nullable=False)
+    target_sprint_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    target_sprint_name: Mapped[str] = mapped_column(String, nullable=False)
+    moved_issue_keys: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    committed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)

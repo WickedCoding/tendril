@@ -8,10 +8,42 @@ class JiraWriteLike(Protocol):
     def create_issue_link(self, data: dict) -> Any: ...
     def remove_issue_link(self, link_id: str | int) -> Any: ...
     def update_issue_field(self, key: str, fields: dict, notify_users: bool = True) -> Any: ...
+    def add_issues_to_sprint(self, sprint_id: int, issues: list[str]) -> Any: ...
+    def update_partially_sprint(self, sprint_id: int, data: dict) -> Any: ...
 
 
 def add_comment(client: JiraWriteLike, key: str, body: str) -> Any:
     return client.issue_add_comment(key, body)
+
+
+def move_issues_to_sprint(
+    client: JiraWriteLike,
+    sprint_id: int,
+    keys: list[str],
+) -> Any:
+    """Batch-move issues into a sprint via the Agile API.
+
+    JIRA accepts up to 50 keys per call; callers who need to move more should
+    chunk. The endpoint is idempotent: re-sending a key that already sits in
+    the sprint is a no-op, which makes step-1 retries on partial failure safe.
+    """
+    return client.add_issues_to_sprint(sprint_id, list(keys))
+
+
+def close_sprint(client: JiraWriteLike, sprint_id: int) -> Any:
+    """Transition a sprint from active → closed. JIRA expects `state=closed`."""
+    return client.update_partially_sprint(sprint_id, {"state": "closed"})
+
+
+def start_sprint(client: JiraWriteLike, sprint_id: int) -> Any:
+    """Transition a sprint from future → active.
+
+    JIRA requires `startDate` and `endDate` set on the sprint before it can
+    be started, but the sprint is expected to have them (Tendril never creates
+    sprints — the user set them up in JIRA). Any refusal surfaces as an
+    exception the ops layer records on the RolloverAttempt.
+    """
+    return client.update_partially_sprint(sprint_id, {"state": "active"})
 
 
 def create_link(client: JiraWriteLike, type_name: str, outward_key: str, inward_key: str) -> Any:

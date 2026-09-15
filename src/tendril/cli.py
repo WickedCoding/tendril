@@ -95,8 +95,19 @@ def config_show() -> None:
     console.print(f"config file: {cfg_mod.config_path()}")
     console.print(f"data dir:    {cfg_mod.data_dir()}")
     console.print(f"[bold]jira[/bold]   url={cfg.jira.url}  email={cfg.jira.email}")
-    console.print(f"[bold]fields[/bold] feature_flags={cfg.fields.feature_flags}  sprint={cfg.fields.sprint}")
+    console.print(
+        f"[bold]fields[/bold] feature_flags={cfg.fields.feature_flags}  "
+        f"sprint={cfg.fields.sprint}  story_points={cfg.fields.story_points}  "
+        f"skills={cfg.fields.skills}"
+    )
     console.print(f"[bold]links[/bold]  default_link_type={cfg.links.default_link_type}")
+    console.print(f"[bold]skills[/bold] totals={cfg.skills.totals}")
+    console.print(f"[bold]rollover[/bold] statuses={cfg.rollover.statuses}")
+    if cfg.boards:
+        for project_key, board in cfg.boards.items():
+            console.print(
+                f"[bold]boards.{project_key}[/bold] sprint_pattern={board.sprint_pattern!r}"
+            )
 
 
 @app.command()

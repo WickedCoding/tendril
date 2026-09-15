@@ -70,6 +70,8 @@ class IssueDTO(BaseModel):
     updated: datetime | None = None
     duedate: date | None = None
     parent_key: str | None = None
+    story_points: float | None = None
+    skills: list[str] = Field(default_factory=list)
     sprints: list[SprintDTO] = Field(default_factory=list)
     links: list[LinkDTO] = Field(default_factory=list)
     comments: list[CommentDTO] = Field(default_factory=list)
@@ -225,6 +227,48 @@ def _parse_sprints(payload: dict, field_id: str | None) -> list[SprintDTO]:
     return out
 
 
+def _parse_story_points(payload: dict, field_id: str | None) -> float | None:
+    """Read the configured Story Points custom field as a float.
+
+    JIRA stores SP as a numeric field. Missing/null/unparseable → None so the
+    row lands as NULL in the cache rather than crashing the sync.
+    """
+    if not field_id:
+        return None
+    value = _get(payload, "fields", field_id, default=None)
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_skills(payload: dict, field_id: str | None) -> list[str]:
+    """Read the configured Skills multi-select as a list of option labels.
+
+    JIRA multi-selects arrive as a list of `{value: ..., ...}` option objects;
+    some tenants flatten to plain strings. Both shapes normalize to a plain list
+    of labels. Unset field → empty list.
+    """
+    if not field_id:
+        return []
+    raw = _get(payload, "fields", field_id, default=None)
+    if not raw:
+        return []
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for item in raw:
+        if isinstance(item, dict):
+            label = item.get("value") or item.get("name")
+            if label is not None:
+                out.append(str(label))
+        elif isinstance(item, str):
+            out.append(item)
+    return out
+
+
 def _parse_comments(payload: dict) -> list[CommentDTO]:
     comments = _get(payload, "fields", "comment", "comments", default=[]) or []
     result: list[CommentDTO] = []
@@ -239,11 +283,17 @@ def _parse_comments(payload: dict) -> list[CommentDTO]:
     return result
 
 
-def normalize_issue(payload: dict, sprint_field_id: str | None = None) -> IssueDTO:
+def normalize_issue(
+    payload: dict,
+    sprint_field_id: str | None = None,
+    story_points_field_id: str | None = None,
+    skills_field_id: str | None = None,
+) -> IssueDTO:
     """Turn a raw `Jira.issue()` payload into a flat IssueDTO.
 
-    `sprint_field_id` is the configured customfield id (e.g. `customfield_10020`);
-    when None, sprints stays empty regardless of what the payload carries.
+    The three `*_field_id` params are configured customfield ids
+    (e.g. `customfield_10020`); when None, the corresponding IssueDTO field
+    stays at its empty default regardless of what the payload carries.
     """
     fields = payload.get("fields") or {}
     return IssueDTO(
@@ -257,6 +307,8 @@ def normalize_issue(payload: dict, sprint_field_id: str | None = None) -> IssueD
         updated=fields.get("updated"),
         duedate=fields.get("duedate"),
         parent_key=_get(fields, "parent", "key"),
+        story_points=_parse_story_points(payload, story_points_field_id),
+        skills=_parse_skills(payload, skills_field_id),
         sprints=_parse_sprints(payload, sprint_field_id),
         links=_parse_links(payload),
         comments=_parse_comments(payload),

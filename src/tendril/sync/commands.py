@@ -19,18 +19,33 @@ INCREMENTAL_SAFETY_BUFFER = timedelta(minutes=5)
 def _extras_for_cfg(cfg: Config | None) -> list[str]:
     """Turn configured custom-field ids into the extra_fields list JIRA needs.
 
-    `cfg.fields.sprint` and `cfg.fields.feature_flags` are opt-in per-instance
-    customfield ids. When set, they're appended so project-sync payloads carry
-    them into the cache — otherwise the detail view would render them empty
-    even though JIRA has values.
+    Every configured field (`sprint`, `feature_flags`, `story_points`, `skills`)
+    is opt-in per-instance; each is appended when set so project-sync payloads
+    carry them into the cache — otherwise the detail view (and rollover screen)
+    would render them empty even though JIRA has values.
     """
     if cfg is None:
         return []
-    return [f for f in (cfg.fields.sprint, cfg.fields.feature_flags) if f]
+    return [
+        f for f in (
+            cfg.fields.sprint,
+            cfg.fields.feature_flags,
+            cfg.fields.story_points,
+            cfg.fields.skills,
+        ) if f
+    ]
 
 
 def _sprint_field(cfg: Config | None) -> str | None:
     return cfg.fields.sprint if cfg is not None else None
+
+
+def _story_points_field(cfg: Config | None) -> str | None:
+    return cfg.fields.story_points if cfg is not None else None
+
+
+def _skills_field(cfg: Config | None) -> str | None:
+    return cfg.fields.skills if cfg is not None else None
 
 
 def sync_issue(
@@ -49,6 +64,8 @@ def sync_issue(
         client, key,
         extra_fields=_extras_for_cfg(cfg),
         sprint_field_id=_sprint_field(cfg),
+        story_points_field_id=_story_points_field(cfg),
+        skills_field_id=_skills_field(cfg),
     )
     if dto.key != key:
         _migrate_watchlist_key(session, old=key, new=dto.key)
@@ -89,10 +106,14 @@ def sync_project(
     now = datetime.now(timezone.utc)
     extras = _extras_for_cfg(cfg)
     sprint_id = _sprint_field(cfg)
+    sp_id = _story_points_field(cfg)
+    skills_id = _skills_field(cfg)
     dtos = search_by_jql(
         client, f'project = "{project_key}"',
         extra_fields=extras,
         sprint_field_id=sprint_id,
+        story_points_field_id=sp_id,
+        skills_field_id=skills_id,
     )
     rows = [upsert_issue(session, dto) for dto in dtos]
     _touch_project_state(session, project_key, full=now, incremental=now)
@@ -117,6 +138,8 @@ def incremental_sync(
     now = datetime.now(timezone.utc)
     extras = _extras_for_cfg(cfg)
     sprint_id = _sprint_field(cfg)
+    sp_id = _story_points_field(cfg)
+    skills_id = _skills_field(cfg)
     all_rows: list[Issue] = []
     for state in project_states:
         since_source = state.last_incremental_sync_at or state.last_full_sync_at
@@ -129,7 +152,13 @@ def incremental_sync(
             f'project = "{state.project_key}" '
             f'AND updated >= "{since.strftime("%Y-%m-%d %H:%M")}"'
         )
-        dtos = search_by_jql(client, jql, extra_fields=extras, sprint_field_id=sprint_id)
+        dtos = search_by_jql(
+            client, jql,
+            extra_fields=extras,
+            sprint_field_id=sprint_id,
+            story_points_field_id=sp_id,
+            skills_field_id=skills_id,
+        )
         all_rows.extend(upsert_issue(session, dto) for dto in dtos)
         state.last_incremental_sync_at = now
 

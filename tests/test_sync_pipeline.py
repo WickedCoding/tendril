@@ -182,6 +182,140 @@ def test_upsert_replaces_sprints_wholesale(session: Session) -> None:
     assert s1.state == "closed"
 
 
+# ---------- story points + skills parsing + persistence ----------
+
+
+def _issue_with_sp_and_skills(
+    key: str,
+    story_points: object,
+    skills: object,
+) -> dict:
+    return {
+        "key": key,
+        "fields": {
+            "summary": "s",
+            "status": {"name": "To Do"},
+            "issuetype": {"name": "Task"},
+            "customfield_10032": story_points,
+            "customfield_10134": skills,
+        },
+    }
+
+
+def test_normalize_ignores_sp_and_skills_when_field_ids_not_configured() -> None:
+    payload = _issue_with_sp_and_skills("X-1", 5, [{"value": "Backend"}])
+    dto = normalize_issue(payload)
+    assert dto.story_points is None
+    assert dto.skills == []
+
+
+def test_normalize_parses_numeric_story_points() -> None:
+    payload = _issue_with_sp_and_skills("X-1", 5, None)
+    dto = normalize_issue(payload, story_points_field_id="customfield_10032")
+    assert dto.story_points == 5.0
+
+
+def test_normalize_story_points_tolerates_string_and_null() -> None:
+    dto_str = normalize_issue(
+        _issue_with_sp_and_skills("X-1", "3.5", None),
+        story_points_field_id="customfield_10032",
+    )
+    assert dto_str.story_points == 3.5
+    dto_none = normalize_issue(
+        _issue_with_sp_and_skills("X-1", None, None),
+        story_points_field_id="customfield_10032",
+    )
+    assert dto_none.story_points is None
+    dto_junk = normalize_issue(
+        _issue_with_sp_and_skills("X-1", "not-a-number", None),
+        story_points_field_id="customfield_10032",
+    )
+    assert dto_junk.story_points is None
+
+
+def test_normalize_parses_skills_from_option_objects() -> None:
+    payload = _issue_with_sp_and_skills(
+        "X-1", None,
+        [{"value": "Backend", "id": "1"}, {"value": "Frontend", "id": "2"}],
+    )
+    dto = normalize_issue(payload, skills_field_id="customfield_10134")
+    assert dto.skills == ["Backend", "Frontend"]
+
+
+def test_normalize_parses_skills_from_flat_strings() -> None:
+    payload = _issue_with_sp_and_skills("X-1", None, ["Backend", "Data"])
+    dto = normalize_issue(payload, skills_field_id="customfield_10134")
+    assert dto.skills == ["Backend", "Data"]
+
+
+def test_upsert_persists_story_points_and_skills(session: Session) -> None:
+    dto = normalize_issue(
+        _issue_with_sp_and_skills(
+            "X-1", 8, [{"value": "Backend"}, {"value": "Frontend"}],
+        ),
+        story_points_field_id="customfield_10032",
+        skills_field_id="customfield_10134",
+    )
+    upsert_issue(session, dto)
+    session.commit()
+
+    row = session.get(Issue, "X-1")
+    assert row is not None
+    assert row.story_points == 8.0
+    assert row.skills == ["Backend", "Frontend"]
+
+    # Re-sync with a different skill set overwrites the list wholesale.
+    dto2 = normalize_issue(
+        _issue_with_sp_and_skills("X-1", None, [{"value": "Data"}]),
+        story_points_field_id="customfield_10032",
+        skills_field_id="customfield_10134",
+    )
+    upsert_issue(session, dto2)
+    session.commit()
+    row = session.get(Issue, "X-1")
+    assert row is not None
+    assert row.story_points is None
+    assert row.skills == ["Data"]
+
+
+# ---------- rollover tables ----------
+
+
+def test_rollover_tables_are_reachable(session: Session) -> None:
+    from datetime import datetime, timezone
+    from tendril.db.models import RolloverAttempt, RolloverLog
+
+    now = datetime.now(timezone.utc)
+    session.add(RolloverAttempt(
+        source_sprint_id=1,
+        target_sprint_id=2,
+        selected_issue_keys=["A-1", "A-2"],
+        moved_issue_keys=["A-1"],
+        completed_step=None,
+        error=None,
+        created_at=now,
+        updated_at=now,
+    ))
+    session.add(RolloverLog(
+        source_sprint_id=1,
+        source_sprint_name="Sprint 16",
+        target_sprint_id=2,
+        target_sprint_name="Sprint 17",
+        moved_issue_keys=["A-1", "A-2"],
+        committed_at=now,
+    ))
+    session.commit()
+
+    attempt = session.get(RolloverAttempt, 1)
+    assert attempt is not None
+    assert attempt.selected_issue_keys == ["A-1", "A-2"]
+    assert attempt.moved_issue_keys == ["A-1"]
+
+    logs = list(session.query(RolloverLog).all())
+    assert len(logs) == 1
+    assert logs[0].source_sprint_name == "Sprint 16"
+
+
 def test_list_sprint_issues_returns_every_issue_in_an_active_sprint(session: Session) -> None:
     mine_active = normalize_issue(
         _issue_with_sprints("X-1", "acc-me",

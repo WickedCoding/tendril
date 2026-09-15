@@ -51,9 +51,20 @@ class FakeJira:
         self._issues = issues
         self._link_types = link_types or []
         self.jql_calls: list[str] = []
+        # Verifiable side-effect log for tests: each entry is a (verb, args) tuple.
+        self.sprint_moves: list[tuple[int, list[str]]] = []
+        self.sprint_updates: list[tuple[int, dict]] = []
 
     def get_issue_link_types(self) -> dict:
         return {"issueLinkTypes": list(self._link_types)}
+
+    def add_issues_to_sprint(self, sprint_id: int, issues: list[str]) -> dict:
+        self.sprint_moves.append((sprint_id, list(issues)))
+        return {}
+
+    def update_partially_sprint(self, sprint_id: int, data: dict) -> dict:
+        self.sprint_updates.append((sprint_id, dict(data)))
+        return {}
 
     def issue(self, key: str, fields: str | None = None, expand: str | None = None) -> dict:
         try:

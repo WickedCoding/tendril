@@ -46,6 +46,8 @@ def upsert_issue(session: Session, dto: IssueDTO) -> Issue:
     row.updated = dto.updated
     row.duedate = dto.duedate
     row.parent_key = dto.parent_key
+    row.story_points = dto.story_points
+    row.skills = list(dto.skills)
     row.raw_json = dto.raw
     row.last_synced_at = datetime.now(timezone.utc)
 

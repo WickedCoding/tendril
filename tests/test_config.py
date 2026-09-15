@@ -6,12 +6,18 @@ import pytest
 
 from tendril import config as cfg_mod
 from tendril.config import (
+    BoardConfig,
     Config,
     ConfigError,
+    DEFAULT_ROLLOVER_STATUSES,
+    DEFAULT_SKILLS_TOTALS,
+    DEFAULT_SPRINT_PATTERN,
     FieldsConfig,
     JiraConfig,
     LinksConfig,
     OverviewConfig,
+    RolloverConfig,
+    SkillsConfig,
     SyncConfig,
     UIConfig,
 )
@@ -140,4 +146,138 @@ def test_overview_rejects_non_string_statuses(isolated_xdg: Path) -> None:
         "[overview]\ndone_statuses = [1, 2]\n"
     )
     with pytest.raises(ConfigError, match="done_statuses"):
+        cfg_mod.load()
+
+
+def test_story_points_and_skills_fields_roundtrip(isolated_xdg: Path) -> None:
+    original = Config(
+        jira=JiraConfig(url="https://x", email="me@x"),
+        fields=FieldsConfig(
+            story_points="customfield_10032",
+            skills="customfield_10134",
+        ),
+    )
+    cfg_mod.save(original)
+    loaded = cfg_mod.load()
+    assert loaded.fields.story_points == "customfield_10032"
+    assert loaded.fields.skills == "customfield_10134"
+
+
+def test_skills_totals_defaults_when_section_absent(isolated_xdg: Path) -> None:
+    path = cfg_mod.config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('[jira]\nurl = "https://x"\nemail = "me@x"\n')
+    loaded = cfg_mod.load()
+    assert loaded.skills.totals == list(DEFAULT_SKILLS_TOTALS)
+
+
+def test_skills_totals_custom_roundtrip(isolated_xdg: Path) -> None:
+    original = Config(
+        jira=JiraConfig(url="https://x", email="me@x"),
+        skills=SkillsConfig(totals=["Backend", "Frontend", "Data"]),
+    )
+    cfg_mod.save(original)
+    loaded = cfg_mod.load()
+    assert loaded.skills.totals == ["Backend", "Frontend", "Data"]
+
+
+def test_skills_rejects_non_string_totals(isolated_xdg: Path) -> None:
+    path = cfg_mod.config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        '[jira]\nurl = "https://x"\nemail = "me@x"\n'
+        "[skills]\ntotals = [1, 2]\n"
+    )
+    with pytest.raises(ConfigError, match=r"\[skills\]\.totals"):
+        cfg_mod.load()
+
+
+def test_rollover_statuses_defaults_when_section_absent(isolated_xdg: Path) -> None:
+    path = cfg_mod.config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('[jira]\nurl = "https://x"\nemail = "me@x"\n')
+    loaded = cfg_mod.load()
+    assert loaded.rollover.statuses == list(DEFAULT_ROLLOVER_STATUSES)
+
+
+def test_rollover_statuses_custom_roundtrip(isolated_xdg: Path) -> None:
+    original = Config(
+        jira=JiraConfig(url="https://x", email="me@x"),
+        rollover=RolloverConfig(statuses=["To Do", "Blocked"]),
+    )
+    cfg_mod.save(original)
+    loaded = cfg_mod.load()
+    assert loaded.rollover.statuses == ["To Do", "Blocked"]
+
+
+def test_rollover_rejects_non_string_statuses(isolated_xdg: Path) -> None:
+    path = cfg_mod.config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        '[jira]\nurl = "https://x"\nemail = "me@x"\n'
+        "[rollover]\nstatuses = [1, 2]\n"
+    )
+    with pytest.raises(ConfigError, match=r"\[rollover\]\.statuses"):
+        cfg_mod.load()
+
+
+def test_boards_roundtrip(isolated_xdg: Path) -> None:
+    original = Config(
+        jira=JiraConfig(url="https://x", email="me@x"),
+        boards={
+            "MMINT": BoardConfig(
+                sprint_pattern=r"^(?P<prefix>MM-)(?P<number>\d+)$",
+            ),
+        },
+    )
+    cfg_mod.save(original)
+    loaded = cfg_mod.load()
+    assert "MMINT" in loaded.boards
+    assert loaded.boards["MMINT"].sprint_pattern == r"^(?P<prefix>MM-)(?P<number>\d+)$"
+
+
+def test_boards_default_pattern_when_omitted(isolated_xdg: Path) -> None:
+    """An empty board section is legal — the sprint pattern falls back to the default."""
+    path = cfg_mod.config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        '[jira]\nurl = "https://x"\nemail = "me@x"\n'
+        "[boards.MMINT]\n"
+    )
+    loaded = cfg_mod.load()
+    assert "MMINT" in loaded.boards
+    assert loaded.boards["MMINT"].sprint_pattern == DEFAULT_SPRINT_PATTERN
+
+
+def test_boards_default_pattern_omitted_from_saved_file(isolated_xdg: Path) -> None:
+    """Sprint pattern at the default value shouldn't clutter the saved TOML."""
+    original = Config(
+        jira=JiraConfig(url="https://x", email="me@x"),
+        boards={"MMINT": BoardConfig()},
+    )
+    cfg_mod.save(original)
+    contents = cfg_mod.config_path().read_text()
+    assert "[boards.MMINT]" in contents
+    assert "sprint_pattern" not in contents
+
+
+def test_boards_rejects_invalid_regex(isolated_xdg: Path) -> None:
+    path = cfg_mod.config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        '[jira]\nurl = "https://x"\nemail = "me@x"\n'
+        '[boards.MMINT]\nsprint_pattern = "(unbalanced"\n'
+    )
+    with pytest.raises(ConfigError, match="valid regex"):
+        cfg_mod.load()
+
+
+def test_boards_rejects_pattern_missing_named_groups(isolated_xdg: Path) -> None:
+    path = cfg_mod.config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        '[jira]\nurl = "https://x"\nemail = "me@x"\n'
+        '[boards.MMINT]\nsprint_pattern = "^(.*)$"\n'
+    )
+    with pytest.raises(ConfigError, match="named groups"):
         cfg_mod.load()

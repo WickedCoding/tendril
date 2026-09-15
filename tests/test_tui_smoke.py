@@ -607,3 +607,250 @@ async def test_theme_from_config_applied_on_mount(isolated_xdg: Path) -> None:
     async with app.run_test() as pilot:
         await pilot.pause()
         assert app.theme == "nord"
+
+
+# ---------- sprint rollover ----------
+
+
+def _seed_rollover(load_fixture) -> None:
+    """Two active sprints on the same board, with two issues in the source and
+    one already in the target, so the two-panel view has something to render.
+    """
+    from datetime import datetime, timezone
+    from tendril.db.models import Issue, IssueSprint, Sprint
+
+    engine = build_engine()
+    init_schema(engine)
+    with session_factory(engine)() as session:
+        now = datetime.now(timezone.utc)
+        session.add_all([
+            Sprint(id=100, name="Sprint 17", state="active", board_id=1),
+            Sprint(id=101, name="Sprint 18", state="active", board_id=1),
+        ])
+        session.add_all([
+            Issue(
+                key="MMINT-1", summary="Roll me over",
+                status="In Progress", issuetype="Task",
+                story_points=5.0, skills=["Backend"],
+                raw_json={}, last_synced_at=now,
+            ),
+            Issue(
+                key="MMINT-2", summary="Preselected",
+                status="To Do", issuetype="Task",
+                story_points=3.0, skills=["Frontend"],
+                raw_json={}, last_synced_at=now,
+            ),
+            Issue(
+                key="MMINT-3", summary="Already in the target",
+                status="To Do", issuetype="Task",
+                story_points=2.0, skills=["Backend"],
+                raw_json={}, last_synced_at=now,
+            ),
+        ])
+        session.add_all([
+            IssueSprint(issue_key="MMINT-1", sprint_id=100),
+            IssueSprint(issue_key="MMINT-2", sprint_id=100),
+            IssueSprint(issue_key="MMINT-3", sprint_id=101),
+        ])
+        session.commit()
+
+
+@pytest.mark.asyncio
+async def test_rollover_picker_lists_active_sprints(
+    isolated_xdg: Path, load_fixture
+) -> None:
+    _seed_rollover(load_fixture)
+    app = TendrilApp(Config(jira=JiraConfig(url="https://x", email="me@x")))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.action_open_rollover_picker()
+        await pilot.pause()
+
+        from tendril.tui.screens.rollover_picker import RolloverPickerModal
+        assert isinstance(app.screen, RolloverPickerModal)
+
+        from textual.widgets import OptionList
+        options = app.screen.query_one(OptionList)
+        ids = {options.get_option_at_index(i).id for i in range(options.option_count)}
+        assert ids == {"100", "101"}
+
+
+@pytest.mark.asyncio
+async def test_rollover_screen_renders_source_and_target(
+    isolated_xdg: Path, load_fixture
+) -> None:
+    _seed_rollover(load_fixture)
+    from tendril.tui.screens.sprint_rollover import SprintRolloverScreen
+    app = TendrilApp(Config(jira=JiraConfig(url="https://x", email="me@x")))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.push_screen(SprintRolloverScreen(100))
+        await pilot.pause()
+
+        assert isinstance(app.screen, SprintRolloverScreen)
+        from textual.widgets import DataTable
+        table = app.screen.query_one("#source-table", DataTable)
+        # Both source-sprint issues are listed.
+        keys = {str(k.value) for k in table.rows.keys()}
+        assert keys == {"MMINT-1", "MMINT-2"}
+
+        # Default rollover statuses ("To Do", "In Progress", ...) preselect both.
+        assert app.screen._selected == {"MMINT-1", "MMINT-2"}
+
+
+@pytest.mark.asyncio
+async def test_rollover_screen_toggle_and_select_none(
+    isolated_xdg: Path, load_fixture
+) -> None:
+    _seed_rollover(load_fixture)
+    from tendril.tui.screens.sprint_rollover import SprintRolloverScreen
+    app = TendrilApp(Config(jira=JiraConfig(url="https://x", email="me@x")))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.push_screen(SprintRolloverScreen(100))
+        await pilot.pause()
+
+        # Clear all selections via `n`.
+        await pilot.press("n")
+        await pilot.pause()
+        assert app.screen._selected == set()
+
+        # Reselect the default rollover statuses via `a`.
+        await pilot.press("a")
+        await pilot.pause()
+        assert app.screen._selected == {"MMINT-1", "MMINT-2"}
+
+
+@pytest.mark.asyncio
+async def test_rollover_screen_enter_opens_preview_modal(
+    isolated_xdg: Path, load_fixture
+) -> None:
+    _seed_rollover(load_fixture)
+    from tendril.tui.screens.sprint_rollover import SprintRolloverScreen
+    from tendril.tui.screens.rollover_preview import RolloverPreviewModal
+
+    app = TendrilApp(Config(jira=JiraConfig(url="https://x", email="me@x")))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.push_screen(SprintRolloverScreen(100))
+        await pilot.pause()
+
+        # `c` opens the preview since selection is non-empty (preselected).
+        await pilot.press("c")
+        await pilot.pause()
+        assert isinstance(app.screen, RolloverPreviewModal)
+
+        # Escape returns without executing.
+        await pilot.press("escape")
+        await pilot.pause()
+        assert isinstance(app.screen, SprintRolloverScreen)
+
+
+@pytest.mark.asyncio
+async def test_rollover_screen_enter_is_noop_when_target_unresolved(
+    isolated_xdg: Path, load_fixture
+) -> None:
+    from datetime import datetime, timezone
+    from tendril.db.models import Issue, IssueSprint, Sprint
+    from tendril.tui.screens.sprint_rollover import SprintRolloverScreen
+    from tendril.tui.screens.rollover_preview import RolloverPreviewModal
+
+    engine = build_engine()
+    init_schema(engine)
+    now = datetime.now(timezone.utc)
+    with session_factory(engine)() as session:
+        session.add(Sprint(id=200, name="Sprint 99", state="active", board_id=2))
+        session.add(Issue(
+            key="LONE-1", summary="Only one",
+            status="To Do", issuetype="Task",
+            story_points=1.0, skills=[],
+            raw_json={}, last_synced_at=now,
+        ))
+        session.add(IssueSprint(issue_key="LONE-1", sprint_id=200))
+        session.commit()
+
+    app = TendrilApp(Config(jira=JiraConfig(url="https://x", email="me@x")))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.push_screen(SprintRolloverScreen(200))
+        await pilot.pause()
+
+        await pilot.press("c")
+        await pilot.pause()
+        # Target is unresolved so the preview must not open.
+        assert not isinstance(app.screen, RolloverPreviewModal)
+        assert isinstance(app.screen, SprintRolloverScreen)
+
+
+@pytest.mark.asyncio
+async def test_rollover_screen_shows_resume_banner_on_partial_attempt(
+    isolated_xdg: Path, load_fixture
+) -> None:
+    _seed_rollover(load_fixture)
+    from datetime import datetime, timezone
+    from tendril.db.models import RolloverAttempt, ROLLOVER_STEP_MOVE
+    from tendril.tui.screens.sprint_rollover import SprintRolloverScreen
+
+    # Seed a partial attempt for source sprint 100.
+    engine = build_engine()
+    init_schema(engine)
+    with session_factory(engine)() as session:
+        now = datetime.now(timezone.utc)
+        session.add(RolloverAttempt(
+            source_sprint_id=100, target_sprint_id=101,
+            selected_issue_keys=["MMINT-1"], moved_issue_keys=["MMINT-1"],
+            completed_step=ROLLOVER_STEP_MOVE,
+            error="Boom",
+            created_at=now, updated_at=now,
+        ))
+        session.commit()
+
+    app = TendrilApp(Config(jira=JiraConfig(url="https://x", email="me@x")))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.push_screen(SprintRolloverScreen(100))
+        await pilot.pause()
+
+        # A partial-attempt row was seeded — the screen must surface it.
+        assert app.screen._partial_attempt is not None
+        assert app.screen._partial_attempt.error == "Boom"
+        # And the status text must announce the resume path with the error.
+        text = app.screen._status_text()
+        assert "partial rollover detected" in text
+        assert "Boom" in text
+
+
+@pytest.mark.asyncio
+async def test_rollover_screen_reports_missing_target(
+    isolated_xdg: Path, load_fixture
+) -> None:
+    """Source sprint exists but no matching target — the right panel must say so
+    instead of crashing or silently pretending everything is fine."""
+    from datetime import datetime, timezone
+    from tendril.db.models import Issue, IssueSprint, Sprint
+    from tendril.tui.screens.sprint_rollover import SprintRolloverScreen
+
+    engine = build_engine()
+    init_schema(engine)
+    now = datetime.now(timezone.utc)
+    with session_factory(engine)() as session:
+        session.add(Sprint(id=200, name="Sprint 99", state="active", board_id=2))
+        session.add(Issue(
+            key="LONE-1", summary="Only one here",
+            status="To Do", issuetype="Task",
+            story_points=1.0, skills=[],
+            raw_json={}, last_synced_at=now,
+        ))
+        session.add(IssueSprint(issue_key="LONE-1", sprint_id=200))
+        session.commit()
+
+    app = TendrilApp(Config(jira=JiraConfig(url="https://x", email="me@x")))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.push_screen(SprintRolloverScreen(200))
+        await pilot.pause()
+
+        assert app.screen._resolution is not None
+        assert app.screen._resolution.predicted_name == "Sprint 100"
+        assert app.screen._resolution.target is None
+        assert "Sprint 100" in (app.screen._resolution.reason or "")

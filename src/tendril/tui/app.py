@@ -26,6 +26,7 @@ class TendrilApp(App):
     BINDINGS = [
         Binding("/", "open_search", "Search", show=False),
         Binding("S", "open_sprint_watchlist", "Sprint", show=False),
+        Binding("R", "open_rollover_picker", "Rollover", show=False),
     ]
 
     def __init__(self, cfg: Config) -> None:
@@ -182,3 +183,14 @@ class TendrilApp(App):
     def action_open_sprint_watchlist(self) -> None:
         from tendril.tui.screens.sprint_watchlist import SprintWatchlistScreen
         self.push_screen(SprintWatchlistScreen())
+
+    def action_open_rollover_picker(self) -> None:
+        """Pick a source sprint, then open the two-panel rollover screen for it."""
+        from tendril.tui.screens.rollover_picker import RolloverPickerModal
+        from tendril.tui.screens.sprint_rollover import SprintRolloverScreen
+
+        def after(sprint_id: int | None) -> None:
+            if sprint_id is not None:
+                self.push_screen(SprintRolloverScreen(sprint_id))
+
+        self.push_screen(RolloverPickerModal(), after)
