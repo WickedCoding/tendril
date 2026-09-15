@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-09-15
+
+### Added
+- Sprint rollover (`Shift+R` in the TUI): pick an active source sprint, review a two-panel view of source vs. projected next sprint, tune the carry-over selection and per-issue SP reductions, preview the full projected roster, and commit. On confirm, four ordered JIRA writes run — move issues → close source → start target → log — with per-step state persisted to a `rollover_attempt` row so failures can be resumed via `Shift+R` from the last successful step. Success appends a local `rollover_log` entry and a transient toast.
+- Story Points and skill labels are now first-class columns on the `issue` row (`[fields].story_points` and `[fields].skills` in `config.toml`), backfilled on next sync.
+- New config surfaces to drive the rollover screen: `[rollover].statuses` (preselected carry-over statuses), `[skills].totals` (per-skill roll-ups), and `[boards.<PROJECT>].sprint_pattern` (regex with named groups `prefix` and `number` for predicting the next sprint's name).
+
 ## [1.3.0] - 2026-09-01
 
 ### Added
