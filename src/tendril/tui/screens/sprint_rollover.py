@@ -46,6 +46,11 @@ class SprintRolloverScreen(Screen):
         Binding("c", "open_preview", "Confirm…"),
         Binding("R", "resume", "Resume"),
         Binding("r", "refresh", "Reload"),
+        # Priority so the screen intercepts before DataTable's default page nav.
+        # On the source panel we forward to the table's own paging; on the
+        # target panel we swap the cursor row up/down within `_target_order`.
+        Binding("pageup", "move_or_page_up", "Move ↑ / page", priority=True),
+        Binding("pagedown", "move_or_page_down", "Move ↓ / page", priority=True),
         Binding("escape", "app.pop_screen", "Back"),
         Binding("q", "app.pop_screen", "Back"),
     ]
@@ -85,6 +90,11 @@ class SprintRolloverScreen(Screen):
         self._resolution: TargetResolution | None = None
         self._target_issues: list[Issue] = []
         self._partial_attempt: RolloverAttempt | None = None
+        # Ordered display sequence for the target panel: carry-over keys first,
+        # then existing target-sprint keys. Seeded from `_sort_issues` on first
+        # load and mutated by PgUp/PgDn in the target panel; drives both the
+        # panel render and the JIRA rank payload on rollover confirmation.
+        self._target_order: list[str] = []
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -103,7 +113,7 @@ class SprintRolloverScreen(Screen):
                 yield Static("", id="target-header")
                 yield DataTable(
                     id="target-table",
-                    cursor_type="none",
+                    cursor_type="row",
                     zebra_stripes=True,
                 )
         yield Static("", id="rollover-status")
@@ -117,9 +127,10 @@ class SprintRolloverScreen(Screen):
             table.add_column("status", width=20, key="status")
             table.add_column("SP", width=7, key="sp")
             table.add_column("summary", width=40, key="summary")
-        # Target panel is a read-only preview: refuse focus so tab / mouse-click
-        # never trap the user in a surface that can't be manipulated.
-        self.query_one("#target-table", DataTable).can_focus = False
+        # Target panel is interactive but restricted: focus + cursor + PgUp/PgDn
+        # reorder only. Space, `e`, and the other source-panel actions bail when
+        # the target has focus (see the `_target_has_focus` guards).
+        self.query_one("#target-table", DataTable).can_focus = True
         self.reload()
         # Panel widths are unreliable during on_mount; queue a resize once the
         # layout settles so summary columns bind to the panel, not the screen.
@@ -172,11 +183,53 @@ class SprintRolloverScreen(Screen):
         # selection so the "resume" plan is exactly what will move.
         if self._partial_attempt is not None:
             self._selected = set(self._partial_attempt.selected_issue_keys)
+            # And restore the ordering the user committed to in the previous
+            # attempt so a resume ranks JIRA the same way as the first try.
+            self._target_order = [
+                k for k in self._partial_attempt.target_order_keys
+                if k in self._selected or k in {i.key for i in self._target_issues}
+            ]
 
+        self._reconcile_target_order()
         self._render_source_panel()
         self._render_target_panel()
         self._render_totals_strip()
         self._set_status(self._status_text())
+
+    def _reconcile_target_order(self) -> None:
+        """Bring `_target_order` in line with the current selection + target rows.
+
+        Rules, in order:
+        - Drop keys that are neither a carry nor an existing target row.
+        - Append newly-selected carry-overs at the top (before any pre-existing
+          key that survived), so new picks land where the eye expects them.
+        - Append newly-appearing target rows (rare: only after a refresh brings
+          a new issue into the target sprint) at the end, `_sort_issues`-ordered.
+        - Preserve every key already in `_target_order` in its current slot.
+        """
+        carry_keys = [i.key for i in self._issues if i.key in self._selected]
+        target_keys = [i.key for i in self._target_issues]
+        valid = set(carry_keys) | set(target_keys)
+
+        kept = [k for k in self._target_order if k in valid]
+        kept_set = set(kept)
+
+        # New carries: honour `_sort_issues` for a stable initial position.
+        new_carries = [
+            issue.key
+            for issue in self._sort_issues(
+                [i for i in self._issues if i.key in self._selected and i.key not in kept_set]
+            )
+        ]
+        # New target rows (post-refresh discovery): pin to the end.
+        new_targets = [
+            issue.key
+            for issue in self._sort_issues(
+                [i for i in self._target_issues if i.key not in kept_set and i.key not in new_carries]
+            )
+        ]
+
+        self._target_order = new_carries + kept + new_targets
 
     def _sort_issues(self, issues: list[Issue]) -> list[Issue]:
         """Order issues so rollover-status ones cluster at the top of the table."""
@@ -236,6 +289,7 @@ class SprintRolloverScreen(Screen):
         assert self._resolution is not None
         header = self.query_one("#target-header", Static)
         table = self.query_one("#target-table", DataTable)
+        prev_cursor = self._target_cursor_key()
         table.clear()
 
         if self._resolution.target is None:
@@ -263,36 +317,49 @@ class SprintRolloverScreen(Screen):
                 ("  ·  ", "dim"),
                 ((target.state or "").capitalize(), "dim"),
                 ("  ·  ", "dim"),
-                ("read-only · edit in JIRA", Style(color="grey54", italic=True)),
+                ("PgUp/PgDn · reorder", Style(color="grey54", italic=True)),
             )
         )
 
         base_style = Style(color="grey62")
         carry_style = Style(color="cyan", bold=True)
-        # Carry-over rows first (issues selected on the source), then existing.
-        carried = [i for i in self._issues if i.key in self._selected]
-        for issue in self._sort_issues(carried):
-            sp = _format_sp_with_reduction(
-                issue.story_points, self._reductions.get(issue.key, 0.0)
+        source_by_key = {i.key: i for i in self._issues}
+        target_by_key = {i.key: i for i in self._target_issues}
+        for key in self._target_order:
+            is_carry = key in self._selected
+            issue = source_by_key.get(key) if is_carry else target_by_key.get(key)
+            if issue is None:
+                # Reconciliation should have dropped stale keys, but guard so a
+                # transient inconsistency never crashes the render.
+                continue
+            style = carry_style if is_carry else base_style
+            marker = "→" if is_carry else " "
+            sp = (
+                _format_sp_with_reduction(
+                    issue.story_points, self._reductions.get(issue.key, 0.0)
+                )
+                if is_carry
+                else _format_sp(issue.story_points)
             )
             table.add_row(
-                Text("→", style=carry_style),
-                Text(issue.key, style=carry_style),
-                Text(issue.status or "—", style=carry_style),
-                Text(sp, style=carry_style),
-                Text((issue.summary or "").strip() or "—", style=carry_style),
-                key=f"carry:{issue.key}",
+                Text(marker, style=style),
+                Text(issue.key, style=style),
+                Text(issue.status or "—", style=style),
+                Text(sp, style=style),
+                Text((issue.summary or "").strip() or "—", style=style),
+                key=key,
             )
-        for issue in self._sort_issues(self._target_issues):
-            sp = _format_sp(issue.story_points)
-            table.add_row(
-                Text(" ", style=base_style),
-                Text(issue.key, style=base_style),
-                Text(issue.status or "—", style=base_style),
-                Text(sp, style=base_style),
-                Text((issue.summary or "").strip() or "—", style=base_style),
-                key=f"target:{issue.key}",
-            )
+
+        # Preserve the cursor across the clear+rebuild — otherwise every rerender
+        # (including a PgUp/PgDn swap) warps the focus back to row 0. `get_row_index`
+        # raises `RowDoesNotExist` for a key that vanished from the panel; guard on
+        # `_target_order` membership so we only look up keys we actually rendered.
+        if (
+            prev_cursor is not None
+            and table.row_count
+            and prev_cursor in self._target_order
+        ):
+            table.move_cursor(row=table.get_row_index(prev_cursor), animate=False)
 
     def _render_totals_strip(self) -> None:
         cfg = self.app.cfg  # type: ignore[attr-defined]
@@ -321,8 +388,8 @@ class SprintRolloverScreen(Screen):
         if self._target_has_focus():
             self.app.bell()
             self._set_status(
-                "Existing target-sprint issues are immovable. "
-                "Deselect on the source panel, or move them in JIRA first."
+                "Selection toggles from the source panel. "
+                "Focus source (left) and try again."
             )
             return
         key = self._cursor_key()
@@ -332,6 +399,7 @@ class SprintRolloverScreen(Screen):
             self._selected.remove(key)
         else:
             self._selected.add(key)
+        self._reconcile_target_order()
         self._render_source_panel()
         self._render_target_panel()
         self._render_totals_strip()
@@ -344,6 +412,7 @@ class SprintRolloverScreen(Screen):
             issue.key for issue in self._issues
             if issue.status in rollover_statuses
         }
+        self._reconcile_target_order()
         self._render_source_panel()
         self._render_target_panel()
         self._render_totals_strip()
@@ -351,10 +420,50 @@ class SprintRolloverScreen(Screen):
 
     def action_select_none(self) -> None:
         self._selected.clear()
+        self._reconcile_target_order()
         self._render_source_panel()
         self._render_target_panel()
         self._render_totals_strip()
         self._set_status(self._status_text())
+
+    def action_move_or_page_up(self) -> None:
+        """PgUp dispatch: reorder on target focus, page-scroll on source focus."""
+        if self._target_has_focus():
+            self._swap_target_row(-1)
+        else:
+            self.query_one("#source-table", DataTable).action_page_up()
+
+    def action_move_or_page_down(self) -> None:
+        """PgDn dispatch: reorder on target focus, page-scroll on source focus."""
+        if self._target_has_focus():
+            self._swap_target_row(+1)
+        else:
+            self.query_one("#source-table", DataTable).action_page_down()
+
+    def _swap_target_row(self, direction: int) -> None:
+        """Swap the target-panel cursor row with its neighbour in `_target_order`.
+
+        `direction` is -1 (up) or +1 (down). Out-of-bounds swaps ring the bell
+        and leave the order untouched.
+        """
+        key = self._target_cursor_key()
+        if key is None or key not in self._target_order:
+            return
+        idx = self._target_order.index(key)
+        new_idx = idx + direction
+        if new_idx < 0 or new_idx >= len(self._target_order):
+            self.app.bell()
+            return
+        self._target_order[idx], self._target_order[new_idx] = (
+            self._target_order[new_idx],
+            self._target_order[idx],
+        )
+        # Rerender then move the cursor to the row the swapped key now sits on
+        # so successive PgUp/PgDn presses keep dragging the same row.
+        self._render_target_panel()
+        table = self.query_one("#target-table", DataTable)
+        if key in self._target_order:
+            table.move_cursor(row=table.get_row_index(key), animate=False)
 
     def action_edit_reduction(self) -> None:
         """Prompt for a per-issue SP reduction on the cursor row (local-only, feeds projected totals)."""
@@ -390,8 +499,10 @@ class SprintRolloverScreen(Screen):
 
     def action_refresh(self) -> None:
         # Explicit user refresh: reset preselection so the config's rollover
-        # statuses re-apply after a JIRA sync brought new issues.
+        # statuses re-apply after a JIRA sync brought new issues. Also drops
+        # any manual target-panel reorderings — a re-seed follows in reload().
         self._selected.clear()
+        self._target_order = []
         self.reload()
 
     def action_open_preview(self) -> None:
@@ -444,6 +555,9 @@ class SprintRolloverScreen(Screen):
         target_id = self._resolution.target.id
         target_name = self._resolution.target.name
         selected = sorted(self._selected)
+        # Snapshot the exact target-panel order; this is what the JIRA rank step
+        # will push. Copied so a later user reorder can't mutate the in-flight write.
+        target_order = list(self._target_order)
         cfg = self.app.cfg  # type: ignore[attr-defined]
 
         def do_write(session, client) -> None:
@@ -453,6 +567,7 @@ class SprintRolloverScreen(Screen):
                     source_sprint_id=source_id,
                     target_sprint_id=target_id,
                     selected_keys=selected,
+                    target_order_keys=target_order,
                 )
             write_ops.execute_rollover(
                 client,
@@ -477,12 +592,20 @@ class SprintRolloverScreen(Screen):
         row_key = table.coordinate_to_cell_key(table.cursor_coordinate).row_key
         return str(row_key.value) if row_key.value is not None else None
 
-    def _target_has_focus(self) -> bool:
-        """True when the read-only target table currently owns focus.
+    def _target_cursor_key(self) -> str | None:
+        """The target-table row key currently under the cursor."""
+        table = self.query_one("#target-table", DataTable)
+        if table.row_count == 0:
+            return None
+        row_key = table.coordinate_to_cell_key(table.cursor_coordinate).row_key
+        return str(row_key.value) if row_key.value is not None else None
 
-        Toggle/edit actions bail on this because the target panel is a preview
-        of what will exist after rollover — existing issues there are immovable
-        from Tendril's side. Removing one means editing the sprint in JIRA first.
+    def _target_has_focus(self) -> bool:
+        """True when the target table currently owns focus.
+
+        Selection toggles and SP edits bail on this because those actions belong
+        to the source panel; the target panel only accepts cursor movement and
+        the PgUp/PgDn reorder pair.
         """
         focused = self.focused
         return focused is not None and getattr(focused, "id", None) == "target-table"
@@ -505,7 +628,8 @@ class SprintRolloverScreen(Screen):
             )
         return (
             f"{n_selected}/{n_total} selected · `c` preview & confirm · "
-            f"`space` toggle · `e` edit SP · `a` reselect · `n` clear · `r` refresh"
+            f"`space` toggle · `e` edit SP · `a` reselect · `n` clear · "
+            f"target PgUp/PgDn reorder · `r` refresh"
         )
 
     def _set_status(self, text: str) -> None:

@@ -10,6 +10,13 @@ class JiraWriteLike(Protocol):
     def update_issue_field(self, key: str, fields: dict, notify_users: bool = True) -> Any: ...
     def add_issues_to_sprint(self, sprint_id: int, issues: list[str]) -> Any: ...
     def update_partially_sprint(self, sprint_id: int, data: dict) -> Any: ...
+    def rank_issues(self, data: dict) -> Any: ...
+
+
+# JIRA's `PUT /rest/agile/1.0/issue/rank` accepts up to 50 keys per call. A
+# single call places the listed issues contiguously, in the given order, after
+# the `rankAfterIssue` anchor.
+_RANK_CHUNK_SIZE = 50
 
 
 def add_comment(client: JiraWriteLike, key: str, body: str) -> Any:
@@ -67,3 +74,24 @@ def remove_link(client: JiraWriteLike, link_id: str) -> Any:
 
 def update_field(client: JiraWriteLike, key: str, field_id: str, value: Any) -> Any:
     return client.update_issue_field(key, {field_id: value})
+
+
+def rank_issues_in_order(client: JiraWriteLike, ordered_keys: list[str]) -> None:
+    """Push a desired display order for `ordered_keys` via chunked rank-after calls.
+
+    Strategy: the first key is the anchor and stays put; each subsequent chunk of
+    up to 49 keys is ranked after the previous chunk's last key. Since JIRA's
+    endpoint places listed issues contiguously in the given order after the
+    anchor, the sprint's rank-sorted view lands in `ordered_keys`' order.
+
+    Fewer than two keys is a no-op — a single-issue sprint (or empty one) has
+    nothing to reorder.
+    """
+    if len(ordered_keys) < 2:
+        return
+    anchor = ordered_keys[0]
+    remaining = ordered_keys[1:]
+    for start in range(0, len(remaining), _RANK_CHUNK_SIZE - 1):
+        chunk = remaining[start : start + _RANK_CHUNK_SIZE - 1]
+        client.rank_issues({"issues": list(chunk), "rankAfterIssue": anchor})
+        anchor = chunk[-1]

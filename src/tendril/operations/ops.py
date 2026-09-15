@@ -10,6 +10,7 @@ from tendril.db.models import (
     Issue,
     ROLLOVER_STEP_CLOSE,
     ROLLOVER_STEP_MOVE,
+    ROLLOVER_STEP_RANK,
     ROLLOVER_STEP_START,
     RolloverAttempt,
     RolloverLog,
@@ -124,13 +125,15 @@ def start_rollover(
     source_sprint_id: int,
     target_sprint_id: int,
     selected_keys: list[str],
+    target_order_keys: list[str],
 ) -> RolloverAttempt:
     """Create or refresh the RolloverAttempt row for `source_sprint_id`.
 
     A pre-existing row (from a partial rollover) keeps its `moved_issue_keys`
     and `completed_step` so a resume picks up where the last try failed. The
-    target sprint id and the selection are refreshed from the caller so the
-    user can revise the plan between failed attempts.
+    target sprint id, the selection, and the desired display order are all
+    refreshed from the caller so the user can revise the plan between failed
+    attempts.
     """
     now = datetime.now(timezone.utc)
     existing = session.get(RolloverAttempt, source_sprint_id)
@@ -140,6 +143,7 @@ def start_rollover(
             target_sprint_id=target_sprint_id,
             selected_issue_keys=list(selected_keys),
             moved_issue_keys=[],
+            target_order_keys=list(target_order_keys),
             completed_step=None,
             error=None,
             created_at=now,
@@ -149,6 +153,7 @@ def start_rollover(
     else:
         existing.target_sprint_id = target_sprint_id
         existing.selected_issue_keys = list(selected_keys)
+        existing.target_order_keys = list(target_order_keys)
         existing.error = None
         existing.updated_at = now
     session.commit()
@@ -167,10 +172,11 @@ def execute_rollover(
     """Advance the rollover attempt for `source_sprint_id` through remaining steps.
 
     Requires a prior `start_rollover` call. Executes the four steps in strict
-    order — move issues, close source, start target, log — persisting progress
-    on the `RolloverAttempt` between each. On JIRA failure the step's error is
-    recorded, the exception re-raised, and the row survives for a later resume.
-    On success the attempt row is deleted and a `RolloverLog` row is written.
+    order — move issues, rank issues, close source, start target — then logs
+    the success. Progress is persisted on the `RolloverAttempt` between each
+    step. On JIRA failure the step's error is recorded, the exception re-raised,
+    and the row survives for a later resume. On success the attempt row is
+    deleted and a `RolloverLog` row is written.
     """
     attempt = session.get(RolloverAttempt, source_sprint_id)
     if attempt is None:
@@ -183,6 +189,8 @@ def execute_rollover(
         if attempt.completed_step is None:
             _step_move(client, session, attempt, cfg=cfg)
         if attempt.completed_step == ROLLOVER_STEP_MOVE:
+            _step_rank(client, session, attempt)
+        if attempt.completed_step == ROLLOVER_STEP_RANK:
             _step_close_source(client, session, attempt)
         if attempt.completed_step == ROLLOVER_STEP_CLOSE:
             _step_start_target(client, session, attempt)
@@ -216,8 +224,9 @@ def _step_move(
 ) -> None:
     """Step 1: move every selected issue into the target sprint, refetch each.
 
-    The JIRA endpoint is idempotent, so resending keys that already sit in the
-    target (from a previously-succeeded partial call) is safe.
+    The JIRA move endpoint is idempotent, so resending keys that already sit in
+    the target (from a previously-succeeded partial call) is safe. Order is not
+    fixed here — the follow-up `_step_rank` handles the final display order.
     """
     keys = list(attempt.selected_issue_keys)
     if keys:
@@ -233,12 +242,31 @@ def _step_move(
     session.commit()
 
 
+def _step_rank(
+    client: OpsJira,
+    session: Session,
+    attempt: RolloverAttempt,
+) -> None:
+    """Step 2: rank the target sprint's issues so JIRA's display order matches the preview.
+
+    Pushed as chunked `PUT /rest/agile/1.0/issue/rank` calls. A zero- or
+    one-issue order is a no-op — nothing to reorder. Runs after the move so a
+    freshly-carried issue is a valid rank target; runs before close/start so a
+    later-step failure still leaves the sprint correctly ordered.
+    """
+    ordered = list(attempt.target_order_keys)
+    jw.rank_issues_in_order(client, ordered)
+    attempt.completed_step = ROLLOVER_STEP_RANK
+    attempt.updated_at = datetime.now(timezone.utc)
+    session.commit()
+
+
 def _step_close_source(
     client: OpsJira,
     session: Session,
     attempt: RolloverAttempt,
 ) -> None:
-    """Step 2: close the source sprint. Local cache follows JIRA's new state."""
+    """Step 3: close the source sprint. Local cache follows JIRA's new state."""
     jw.close_sprint(client, attempt.source_sprint_id)
     source = session.get(Sprint, attempt.source_sprint_id)
     if source is not None:
@@ -253,7 +281,7 @@ def _step_start_target(
     session: Session,
     attempt: RolloverAttempt,
 ) -> None:
-    """Step 3: activate the target sprint. The target must already have dates."""
+    """Step 4: activate the target sprint. The target must already have dates."""
     jw.start_sprint(client, attempt.target_sprint_id)
     target = session.get(Sprint, attempt.target_sprint_id)
     if target is not None:

@@ -142,12 +142,16 @@ class LinkType(Base):
 
 # Rollover step labels — stored as strings in RolloverAttempt.completed_step so
 # the schema doesn't need to know about the enum. Ordering matters: each step
-# must complete before the next begins.
+# must complete before the next begins. `rank_issues` sits right after the move
+# so the JIRA sprint's display order matches the preview even if a later step
+# fails and the rollover has to be resumed.
 ROLLOVER_STEP_MOVE = "move_issues"
+ROLLOVER_STEP_RANK = "rank_issues"
 ROLLOVER_STEP_CLOSE = "close_source"
 ROLLOVER_STEP_START = "start_target"
 ROLLOVER_STEPS_ORDER: tuple[str, ...] = (
     ROLLOVER_STEP_MOVE,
+    ROLLOVER_STEP_RANK,
     ROLLOVER_STEP_CLOSE,
     ROLLOVER_STEP_START,
 )
@@ -167,6 +171,10 @@ class RolloverAttempt(Base):
     target_sprint_id: Mapped[int] = mapped_column(Integer, nullable=False)
     selected_issue_keys: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     moved_issue_keys: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    # Final desired display order for the entire target sprint (carry-overs +
+    # pre-existing issues, in the sequence the user arranged in the preview).
+    # Pushed to JIRA in the `rank_issues` step.
+    target_order_keys: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     completed_step: Mapped[str | None] = mapped_column(String, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)

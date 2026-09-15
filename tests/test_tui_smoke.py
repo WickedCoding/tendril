@@ -783,6 +783,44 @@ async def test_rollover_screen_enter_is_noop_when_target_unresolved(
 
 
 @pytest.mark.asyncio
+async def test_rollover_screen_target_panel_reorder(
+    isolated_xdg: Path, load_fixture
+) -> None:
+    """Focus the target panel and swap rows with PgUp/PgDn."""
+    _seed_rollover(load_fixture)
+    from tendril.tui.screens.sprint_rollover import SprintRolloverScreen
+    from textual.widgets import DataTable
+
+    app = TendrilApp(Config(jira=JiraConfig(url="https://x", email="me@x")))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.push_screen(SprintRolloverScreen(100))
+        await pilot.pause()
+
+        # Default: two carries (MMINT-1, MMINT-2), then the existing target row MMINT-3.
+        initial = list(app.screen._target_order)
+        assert initial[-1] == "MMINT-3"
+        assert set(initial[:2]) == {"MMINT-1", "MMINT-2"}
+
+        target = app.screen.query_one("#target-table", DataTable)
+        target.focus()
+        target.move_cursor(row=0, animate=False)
+        await pilot.pause()
+
+        # PgDn on row 0 swaps the top two.
+        await pilot.press("pagedown")
+        await pilot.pause()
+        after_down = list(app.screen._target_order)
+        assert after_down[0] == initial[1]
+        assert after_down[1] == initial[0]
+
+        # PgUp brings it back.
+        await pilot.press("pageup")
+        await pilot.pause()
+        assert list(app.screen._target_order) == initial
+
+
+@pytest.mark.asyncio
 async def test_rollover_screen_shows_resume_banner_on_partial_attempt(
     isolated_xdg: Path, load_fixture
 ) -> None:

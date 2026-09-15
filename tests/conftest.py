@@ -54,6 +54,7 @@ class FakeJira:
         # Verifiable side-effect log for tests: each entry is a (verb, args) tuple.
         self.sprint_moves: list[tuple[int, list[str]]] = []
         self.sprint_updates: list[tuple[int, dict]] = []
+        self.rank_calls: list[dict] = []
 
     def get_issue_link_types(self) -> dict:
         return {"issueLinkTypes": list(self._link_types)}
@@ -64,6 +65,10 @@ class FakeJira:
 
     def update_partially_sprint(self, sprint_id: int, data: dict) -> dict:
         self.sprint_updates.append((sprint_id, dict(data)))
+        return {}
+
+    def rank_issues(self, data: dict) -> dict:
+        self.rank_calls.append(dict(data))
         return {}
 
     def issue(self, key: str, fields: str | None = None, expand: str | None = None) -> dict:

@@ -18,6 +18,7 @@ from tendril.db.models import (
     IssueSprint,
     ROLLOVER_STEP_CLOSE,
     ROLLOVER_STEP_MOVE,
+    ROLLOVER_STEP_RANK,
     ROLLOVER_STEP_START,
     RolloverAttempt,
     RolloverLog,
@@ -207,11 +208,14 @@ class RolloverFakeJira:
         issues: dict[str, dict],
         *,
         sprint_updates_that_raise: dict[int, Exception] | None = None,
+        raise_on_rank: Exception | None = None,
     ) -> None:
         self._issues = issues
         self.sprint_moves: list[tuple[int, list[str]]] = []
         self.sprint_updates: list[tuple[int, dict]] = []
+        self.rank_calls: list[dict] = []
         self._raise_on = sprint_updates_that_raise or {}
+        self._raise_on_rank = raise_on_rank
 
     def issue(self, key: str, fields: str | None = None, expand: str | None = None) -> dict:
         return self._issues[key]
@@ -228,6 +232,12 @@ class RolloverFakeJira:
         exc = self._raise_on.get(sprint_id)
         if exc is not None:
             raise exc
+        return {}
+
+    def rank_issues(self, data: dict) -> dict:
+        self.rank_calls.append(dict(data))
+        if self._raise_on_rank is not None:
+            raise self._raise_on_rank
         return {}
 
 
@@ -267,6 +277,7 @@ def test_execute_rollover_happy_path(session: Session) -> None:
         source_sprint_id=100,
         target_sprint_id=101,
         selected_keys=["MMINT-1", "MMINT-2"],
+        target_order_keys=["MMINT-1", "MMINT-2"],
     )
     log = ops.execute_rollover(
         client, session,
@@ -276,8 +287,11 @@ def test_execute_rollover_happy_path(session: Session) -> None:
         cfg=cfg,
     )
 
-    # Client calls in the right order.
+    # Client calls in the right order: move, rank, close, start.
     assert client.sprint_moves == [(101, ["MMINT-1", "MMINT-2"])]
+    assert client.rank_calls == [
+        {"issues": ["MMINT-2"], "rankAfterIssue": "MMINT-1"},
+    ]
     assert client.sprint_updates == [
         (100, {"state": "closed"}),
         (101, {"state": "active"}),
@@ -324,10 +338,13 @@ def test_start_rollover_refreshes_existing_attempt(session: Session) -> None:
         source_sprint_id=100,
         target_sprint_id=101,
         selected_keys=["MMINT-1", "MMINT-2"],
+        target_order_keys=["MMINT-2", "MMINT-1"],
     )
     attempt = session.get(RolloverAttempt, 100)
     assert attempt is not None
     assert attempt.selected_issue_keys == ["MMINT-1", "MMINT-2"]
+    # A resume refreshes the target order too — user may have reordered.
+    assert attempt.target_order_keys == ["MMINT-2", "MMINT-1"]
     # moved_issue_keys and completed_step are preserved so the resume can skip past
     # already-succeeded steps.
     assert attempt.moved_issue_keys == ["MMINT-1"]
@@ -350,6 +367,7 @@ def test_execute_rollover_records_error_and_preserves_attempt(session: Session) 
         session,
         source_sprint_id=100, target_sprint_id=101,
         selected_keys=["MMINT-1", "MMINT-2"],
+        target_order_keys=["MMINT-1", "MMINT-2"],
     )
 
     with pytest.raises(RuntimeError, match="JIRA rejected close"):
@@ -363,7 +381,9 @@ def test_execute_rollover_records_error_and_preserves_attempt(session: Session) 
 
     attempt = session.get(RolloverAttempt, 100)
     assert attempt is not None, "attempt must survive the failure so resume is possible"
-    assert attempt.completed_step == ROLLOVER_STEP_MOVE, "move step succeeded before the failure"
+    # Move + rank succeeded, close was the step that raised — so the last
+    # completed step recorded is rank.
+    assert attempt.completed_step == ROLLOVER_STEP_RANK
     assert attempt.error == "JIRA rejected close"
     assert session.query(RolloverLog).count() == 0
 
@@ -407,6 +427,7 @@ def test_execute_rollover_with_empty_selection_still_advances_sprints(
         session,
         source_sprint_id=100, target_sprint_id=101,
         selected_keys=[],
+        target_order_keys=[],
     )
     ops.execute_rollover(
         client, session,
@@ -415,6 +436,61 @@ def test_execute_rollover_with_empty_selection_still_advances_sprints(
         target_sprint_name="Sprint 18",
     )
     assert client.sprint_moves == []
+    # Empty target order means nothing to rank — the endpoint isn't hit.
+    assert client.rank_calls == []
+    assert client.sprint_updates == [
+        (100, {"state": "closed"}),
+        (101, {"state": "active"}),
+    ]
+
+
+def test_rank_issues_in_order_chunks_at_fifty(session: Session) -> None:
+    """`rank_issues_in_order` splits >50 keys into chained rank-after calls."""
+    from tendril.jira.write import rank_issues_in_order
+
+    keys = [f"K-{i}" for i in range(120)]
+    client = RolloverFakeJira({})
+    rank_issues_in_order(client, keys)
+
+    # 120 keys: anchor K-0, then chunks of 49 (K-1..K-49), 49 (K-50..K-98),
+    # 21 (K-99..K-119) — each anchored on the previous chunk's last key.
+    assert [c["rankAfterIssue"] for c in client.rank_calls] == [
+        "K-0", "K-49", "K-98",
+    ]
+    assert client.rank_calls[0]["issues"][0] == "K-1"
+    assert client.rank_calls[0]["issues"][-1] == "K-49"
+    assert client.rank_calls[-1]["issues"][-1] == "K-119"
+    # Every key except the anchor appears exactly once across all chunks.
+    seen = [k for c in client.rank_calls for k in c["issues"]]
+    assert seen == keys[1:]
+
+
+def test_execute_rollover_resume_skips_completed_rank(session: Session) -> None:
+    """A resume that already has rank done must not re-rank."""
+    _seed_two_sprints(session)
+    now = _now()
+    session.add(RolloverAttempt(
+        source_sprint_id=100, target_sprint_id=101,
+        selected_issue_keys=["MMINT-1"],
+        moved_issue_keys=["MMINT-1"],
+        target_order_keys=["MMINT-1", "MMINT-2"],
+        completed_step=ROLLOVER_STEP_RANK,
+        error=None,
+        created_at=now, updated_at=now,
+    ))
+    session.commit()
+
+    client = RolloverFakeJira({"MMINT-1": _payload("MMINT-1", 101)})
+    ops.execute_rollover(
+        client, session,
+        source_sprint_id=100,
+        source_sprint_name="Sprint 17",
+        target_sprint_name="Sprint 18",
+    )
+
+    # Rank already done — no rank call, no re-move; close and start both fire.
+    assert client.sprint_moves == []
+    assert client.rank_calls == []
     assert client.sprint_updates == [
         (100, {"state": "closed"}),
         (101, {"state": "active"}),
