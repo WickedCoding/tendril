@@ -24,7 +24,7 @@ Prints the current config. The API token is never printed.
 uv run tendril config show
 ```
 
-Output covers the config file path, data directory, JIRA URL and email, configured custom-field ids, and the default link type.
+Output covers the config file path, data directory, JIRA URL and email, configured custom-field ids, the default link type, per-skill totals and rollover statuses, and any per-project board sections.
 
 ## Editing the config directly
 
@@ -38,6 +38,8 @@ email = "you@example.com"
 [fields]
 feature_flags = "customfield_10457"    # enables the `f` binding in the TUI
 sprint = "customfield_10020"           # enables the sprint watchlist (Shift+S in the TUI)
+story_points = "customfield_10032"     # required for the sprint rollover screen (Shift+R)
+skills = "customfield_10134"           # optional — a multi-select for per-skill totals
 
 [links]
 default_link_type = "Relates"          # default JIRA link type for `l`
@@ -50,9 +52,25 @@ done_statuses = [                      # rows the TUI overview `o` filter hides
   "Deployed to Acc",
   "Deployed to Prod",
 ]
+
+[rollover]
+statuses = [                           # source-sprint statuses preselected for carry-over
+  "To Do",
+  "In Progress",
+  "Code Review",
+  "Functional Review",
+]
+
+[skills]
+totals = ["Backend", "Frontend"]       # which skill labels get rolled-up totals in the rollover screen
+
+[boards.MMINT]                         # optional per-project section
+sprint_pattern = '^(?P<prefix>.*?)(?P<number>\d+)$'  # regex with named groups `prefix` and `number`
 ```
 
 Change `done_statuses` to match your project's workflow — anything not in this list counts as "open" for the filter.
+
+The sprint rollover screen (`Shift+R`) leans on `[fields].story_points`, `[rollover].statuses`, `[skills].totals`, and `[boards.<PROJECT>].sprint_pattern`. See [rollover.md](rollover.md) for how each field shapes the projected next-sprint totals and the resume-on-failure path.
 
 ## Where the files live
 

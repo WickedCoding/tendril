@@ -43,7 +43,7 @@ Run with no subcommand:
 tendril
 ```
 
-Three screens plus a global search.
+Four screens plus a global search.
 
 **Overview** — a table of every cached issue, with a `★` column marking watchlisted rows.
 
@@ -82,12 +82,28 @@ Three screens plus a global search.
 | ↵   | open issue detail                          |
 | esc | back to the previous screen                |
 
+**Sprint rollover** — two-panel view for moving an active sprint's carry-over into the next one, then closing the source and starting the target. Pick a source sprint, tune the selection and per-issue SP reductions, preview, confirm. Needs `[fields].story_points`, `[rollover].statuses`, and (for a non-default naming scheme) `[boards.<PROJECT>].sprint_pattern`.
+
+| key     | binding                                            |
+|---------|----------------------------------------------------|
+| space   | toggle selection on the source row                 |
+| a       | reselect all rollover-status issues                |
+| n       | clear selection                                    |
+| e       | set / clear SP reduction on the cursor row         |
+| c       | open the preview modal                             |
+| r       | reload from cache                                  |
+| shift+r | resume a partial rollover                          |
+| esc     | back to the previous screen                        |
+
+See [docs/rollover.md](docs/rollover.md) for the full config, the four ordered write steps, and failure recovery.
+
 **Global** — works from any screen:
 
 | key     | binding                                                |
 |---------|--------------------------------------------------------|
 | /       | search cached issues by key, tag, or summary (`#tag` narrows to tags only) |
 | shift+s | open the sprint watchlist                              |
+| shift+r | open the sprint rollover picker                        |
 | ctrl+p  | command palette (`Sync project…` + one per synced project) |
 
 ## Tags

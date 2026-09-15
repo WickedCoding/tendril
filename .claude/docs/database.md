@@ -28,6 +28,8 @@ One row per cached JIRA issue. Upserted by key on every fetch.
 | `updated`               | DATETIME  | Drives `sync incremental`                                 |
 | `duedate`               | DATE      |                                                           |
 | `parent_key`            | TEXT      | Parent issue key for Sub-tasks and Story→Epic             |
+| `story_points`          | FLOAT     | Parsed from `[fields].story_points` custom field. NULL when the field is unset or unparseable. |
+| `skills`                | JSON      | List of skill labels parsed from `[fields].skills` custom field (empty list by default). Handles both flat and option-object payloads. |
 | `raw_json`              | JSON      | Original JIRA payload; source of truth for anything else  |
 | `last_synced_at`        | DATETIME  | Set on every upsert                                       |
 
@@ -125,6 +127,35 @@ Local free-form label on a cached issue. Never pushed to JIRA. Composite primary
 | `issue_key`  | TEXT PK |        |
 | `tag`        | TEXT PK |        |
 
+### `rollover_attempt`
+
+In-flight or failed sprint-rollover state. One row per source sprint; deleted on success. A lingering row on re-entry to the rollover screen signals a partial rollover that the user can resume from `completed_step + 1`.
+
+| column                | type      | notes                                                       |
+|-----------------------|-----------|-------------------------------------------------------------|
+| `source_sprint_id`    | INT PK    | JIRA sprint id of the sprint being rolled over              |
+| `target_sprint_id`    | INT       | JIRA sprint id of the projected next sprint                 |
+| `selected_issue_keys` | JSON      | Issue keys the user picked to carry over                    |
+| `moved_issue_keys`    | JSON      | Keys the move step actually sent to JIRA (for resume)       |
+| `completed_step`      | TEXT      | `move_issues` \| `close_source` \| `start_target` \| NULL   |
+| `error`               | TEXT      | Last exception message; cleared when `start_rollover` refreshes the row |
+| `created_at`          | DATETIME  |                                                             |
+| `updated_at`          | DATETIME  | Bumped on every step commit                                 |
+
+### `rollover_log`
+
+Successful rollover history. Sprint names are denormalized so the log stays readable even if the sprint rows are later evicted from the cache.
+
+| column                 | type      | notes                              |
+|------------------------|-----------|------------------------------------|
+| `id`                   | INT PK    | Autoincrement                      |
+| `source_sprint_id`     | INT       |                                    |
+| `source_sprint_name`   | TEXT      | Denormalized at commit time        |
+| `target_sprint_id`     | INT       |                                    |
+| `target_sprint_name`   | TEXT      | Denormalized at commit time        |
+| `moved_issue_keys`     | JSON      | Keys actually moved                |
+| `committed_at`         | DATETIME  |                                    |
+
 ### `project_sync_state`
 
 Per-project bookkeeping. A row exists once `sync project KEY` has run at least once — that row is what makes `sync incremental` include the project.
@@ -147,6 +178,7 @@ Repeated from `CLAUDE.md`, because they are properties of the schema itself:
 - **Comments are upserted by JIRA comment id.** Sprint metadata rows are upserted by JIRA sprint id.
 - **Every write refetches** the touched issue via `sync_issue`; the cache stays honest by re-reading after every push.
 - **The watchlist is a marker on top of the cache** — it never triggers a fetch.
+- **`rollover_attempt` is per-source-sprint state**, not a queue. Its presence signals a partial rollover; success deletes it and appends to `rollover_log`.
 
 ## Quick reference for ad-hoc queries
 
