@@ -43,7 +43,7 @@
       ]
     },
     {
-      "name": "sync project",
+      "name": "project sync",
       "description": "Fetch every issue in one or more JIRA projects into the local cache.",
       "parameters": [
         {
@@ -57,8 +57,22 @@
       ]
     },
     {
-      "name": "sync incremental",
-      "description": "Refetch issues updated since the last incremental sync, across all previously synced projects.",
+      "name": "project drop",
+      "description": "Purge every cached row belonging to the named projects. Runs with no confirmation.",
+      "parameters": [
+        {
+          "name": "project_keys",
+          "kind": "argument",
+          "type": "list[str]",
+          "description": "One or more JIRA project keys.",
+          "optional": false,
+          "variadic": true
+        }
+      ]
+    },
+    {
+      "name": "sync",
+      "description": "Refetch issues updated since the last sync, across every project you've synced. The top-level keep-fresh command.",
       "parameters": []
     },
     {

@@ -47,7 +47,7 @@ class RolloverPickerModal(ModalScreen[int | None]):
             sprints = list_active_sprints(session)
         if not sprints:
             options.add_option(Option(
-                Text("No active sprints in the cache. Run `tendril sync project KEY` first.", style="dim"),
+                Text("No active sprints in the cache. Run `tendril project sync KEY` first.", style="dim"),
                 id=None,
                 disabled=True,
             ))

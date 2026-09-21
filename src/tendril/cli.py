@@ -20,11 +20,19 @@ from tendril.text import plural
 
 app = typer.Typer(help="tendril — a keyboard-driven JIRA companion.")
 config_app = typer.Typer(help="Manage tendril configuration.", no_args_is_help=True)
-sync_app = typer.Typer(help="Sync from JIRA to the local cache.", no_args_is_help=True)
+sync_app = typer.Typer(
+    help=(
+        "Refresh the local cache from JIRA. Bare `tendril sync` refetches every "
+        "issue changed since the last sync, across every project you've synced."
+    ),
+    invoke_without_command=True,
+)
+project_app = typer.Typer(help="Manage cached JIRA projects.", no_args_is_help=True)
 watchlist_app = typer.Typer(help="Manage the curated issue watchlist.", no_args_is_help=True)
 tag_app = typer.Typer(help="Manage local tags on cached issues (never pushed to JIRA).", no_args_is_help=True)
 app.add_typer(config_app, name="config")
 app.add_typer(sync_app, name="sync")
+app.add_typer(project_app, name="project")
 app.add_typer(watchlist_app, name="watchlist")
 app.add_typer(tag_app, name="tag")
 
@@ -170,8 +178,8 @@ def sync_issue_cmd(
         raise typer.Exit(2)
 
 
-@sync_app.command("project")
-def sync_project_cmd(
+@project_app.command("sync")
+def project_sync_cmd(
     project_keys: list[str] = typer.Argument(..., help="One or more JIRA project keys."),
 ) -> None:
     """Fetch every issue in one or more JIRA projects into the local cache.
@@ -203,9 +211,33 @@ def sync_project_cmd(
         raise typer.Exit(2)
 
 
-@sync_app.command("incremental")
-def sync_incremental_cmd() -> None:
-    """Refetch issues updated since the last incremental sync, across all previously synced projects."""
+@project_app.command("drop")
+def project_drop_cmd(
+    project_keys: list[str] = typer.Argument(..., help="One or more JIRA project keys."),
+) -> None:
+    """Purge every cached row belonging to the named projects.
+
+    Removes issues, comments, links, sprint join rows, and each project's
+    sync-state marker. Watchlist entries, local tags, sprint metadata, and
+    rollover history are user data / cross-project state and are left alone.
+    Runs with no confirmation.
+    """
+    session, close = _open_session()
+    try:
+        for project_key in project_keys:
+            removed = sync_ops.drop_project(session, project_key)
+            console.print(
+                f"[green]Dropped[/green] {plural(removed, 'issue')} from project [bold]{project_key}[/bold]."
+            )
+    finally:
+        close()
+
+
+@sync_app.callback(invoke_without_command=True)
+def sync_root(ctx: typer.Context) -> None:
+    """Refresh every previously-synced project incrementally when called bare."""
+    if ctx.invoked_subcommand is not None:
+        return
     cfg = _load_config_or_die()
     client = jira_client.build(cfg)
     session, close = _open_session()
@@ -213,7 +245,7 @@ def sync_incremental_cmd() -> None:
         rows = sync_ops.incremental_sync(client, session, cfg=cfg)
         if not rows:
             console.print(
-                "[dim]Nothing to sync. Run `tendril sync project KEY` at least once first.[/dim]"
+                "[dim]Nothing to sync. Run `tendril project sync KEY` at least once first.[/dim]"
             )
             return
         console.print(f"[green]Synced[/green] {plural(len(rows), 'changed issue')}.")
@@ -254,7 +286,7 @@ def watchlist_add_cmd(
     """Add issue keys to the watchlist (idempotent).
 
     Does not fetch from JIRA. If a key isn't in the local cache yet, sync the
-    project (`tendril sync project KEY`) or the single issue (`tendril sync issue KEY`).
+    project (`tendril project sync KEY`) or the single issue (`tendril sync issue KEY`).
     """
     session, close = _open_session()
     try:
@@ -263,7 +295,7 @@ def watchlist_add_cmd(
         if uncached:
             console.print(
                 f"[yellow]Not yet in cache:[/yellow] {', '.join(uncached)}\n"
-                "[dim]Run `tendril sync project KEY` or `tendril sync issue KEY` to populate.[/dim]"
+                "[dim]Run `tendril project sync KEY` or `tendril sync issue KEY` to populate.[/dim]"
             )
     finally:
         close()

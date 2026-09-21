@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from tendril.tags.ops import add_tags, list_tags_for
 from tendril.config import Config
 from tendril.db.models import (
-    Issue, IssueSprint, IssueTag, LinkType, ProjectSyncState, Sprint, WatchlistEntry,
+    Comment, Issue, IssueLink, IssueSprint, IssueTag, LinkType, ProjectSyncState,
+    Sprint, WatchlistEntry,
 )
 from tendril.jira.fetch import JiraLike, fetch_issue, fetch_link_types, search_by_jql
 from tendril.sync.pipeline import upsert_issue
@@ -121,6 +122,33 @@ def sync_project(
     return rows
 
 
+def drop_project(session: Session, project_key: str) -> int:
+    """Purge every cached row that belongs to `project_key`.
+
+    Removes issues, their comments, issue-link rows on either side, sprint join
+    rows, and the `ProjectSyncState`. Watchlist entries, local tags, sprint
+    metadata rows, and rollover history are user data / cross-project state and
+    are left alone; a re-sync repopulates the cache without touching them.
+
+    Returns the number of `Issue` rows removed.
+    """
+    key_like = f"{project_key}-%"
+    issue_count = session.scalar(
+        select(func.count()).select_from(Issue).where(Issue.key.like(key_like))
+    ) or 0
+
+    session.execute(delete(Comment).where(Comment.issue_key.like(key_like)))
+    session.execute(delete(IssueSprint).where(IssueSprint.issue_key.like(key_like)))
+    session.execute(delete(IssueLink).where(
+        or_(IssueLink.source_key.like(key_like), IssueLink.target_key.like(key_like))
+    ))
+    session.execute(delete(Issue).where(Issue.key.like(key_like)))
+    session.execute(delete(ProjectSyncState).where(ProjectSyncState.project_key == project_key))
+
+    session.commit()
+    return int(issue_count)
+
+
 def incremental_sync(
     client: JiraLike,
     session: Session,
@@ -128,7 +156,7 @@ def incremental_sync(
 ) -> list[Issue]:
     """Refetch issues updated since the last incremental sync, per project we've synced before.
 
-    A project is only considered if `sync project` has run for it at least once.
+    A project is only considered if `project sync` has run for it at least once.
     Updates each project's `last_incremental_sync_at` on success.
     """
     project_states = list(session.scalars(select(ProjectSyncState)).all())

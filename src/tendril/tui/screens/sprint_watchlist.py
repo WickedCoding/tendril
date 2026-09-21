@@ -123,7 +123,7 @@ class SprintWatchlistScreen(Screen):
         total = len(pairs)
         if not pairs:
             self._set_status(
-                "No issues in an active sprint yet — run `tendril sync project KEY` first, "
+                "No issues in an active sprint yet — run `tendril project sync KEY` first, "
                 "and make sure `[fields].sprint` is set in config.toml."
             )
         else:

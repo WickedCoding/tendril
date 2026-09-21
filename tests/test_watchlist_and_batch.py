@@ -5,9 +5,12 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from tendril.db.models import Issue, ProjectSyncState, WatchlistEntry
+from tendril.db.models import (
+    Comment, Issue, IssueLink, IssueSprint, IssueTag, ProjectSyncState, WatchlistEntry,
+)
 from tendril.sync.commands import (
     add_to_watchlist,
+    drop_project,
     incremental_sync,
     list_watchlist,
     remove_from_watchlist,
@@ -257,6 +260,70 @@ def test_search_issues_hash_prefix_matches_tags_only(
     # Bare `#` yields nothing.
     assert search_issues(session, "#") == []
     assert search_issues(session, "  #  ") == []
+
+
+def test_drop_project_purges_cache_rows_and_state(
+    session: Session, load_fixture, fake_jira_class
+) -> None:
+    """drop_project removes issues, comments, links, sprint join rows, and sync state."""
+    client = fake_jira_class({
+        "PROJ-1": load_fixture("issue_sample.json"),
+        "PROJ-2": load_fixture("issue_second.json"),
+    })
+    sync_project(client, session, "PROJ")
+
+    # Sanity: rows exist before the drop.
+    assert session.query(Issue).count() >= 2
+    assert session.get(ProjectSyncState, "PROJ") is not None
+
+    removed = drop_project(session, "PROJ")
+
+    assert removed == 2
+    assert session.query(Issue).filter(Issue.key.like("PROJ-%")).count() == 0
+    assert session.query(Comment).filter(Comment.issue_key.like("PROJ-%")).count() == 0
+    assert session.query(IssueLink).filter(
+        (IssueLink.source_key.like("PROJ-%")) | (IssueLink.target_key.like("PROJ-%"))
+    ).count() == 0
+    assert session.query(IssueSprint).filter(IssueSprint.issue_key.like("PROJ-%")).count() == 0
+    assert session.get(ProjectSyncState, "PROJ") is None
+
+
+def test_drop_project_leaves_other_projects_alone(
+    session: Session, load_fixture, fake_jira_class
+) -> None:
+    other = {**load_fixture("issue_sample.json"), "key": "OTHER-1"}
+    client = fake_jira_class({
+        "PROJ-1": load_fixture("issue_sample.json"),
+        "OTHER-1": other,
+    })
+    sync_project(client, session, "PROJ")
+    sync_project(client, session, "OTHER")
+
+    drop_project(session, "PROJ")
+
+    assert session.get(Issue, "OTHER-1") is not None
+    assert session.get(ProjectSyncState, "OTHER") is not None
+
+
+def test_drop_project_preserves_watchlist_and_tags(
+    session: Session, load_fixture, fake_jira_class
+) -> None:
+    """Watchlist entries and local tags are user data — they survive a drop."""
+    client = fake_jira_class({"PROJ-1": load_fixture("issue_sample.json")})
+    sync_project(client, session, "PROJ")
+    add_to_watchlist(session, ["PROJ-1"])
+    session.add(IssueTag(issue_key="PROJ-1", tag="hot"))
+    session.commit()
+
+    drop_project(session, "PROJ")
+
+    assert session.get(WatchlistEntry, "PROJ-1") is not None
+    assert session.query(IssueTag).filter_by(issue_key="PROJ-1", tag="hot").one_or_none() is not None
+
+
+def test_drop_project_on_never_synced_project_is_a_noop(session: Session) -> None:
+    removed = drop_project(session, "GHOST")
+    assert removed == 0
 
 
 def test_incremental_falls_back_to_full_sync_if_no_timestamp(

@@ -2,7 +2,7 @@
 
 The watchlist is a marker layer on top of the cache. Adding a key never fetches from JIRA — it flags a cached issue so the TUI's overview highlights it in the accent color and so `watchlist list` can print it as a short curated set.
 
-If a key isn't in the cache when you add it, the CLI tells you and points at `sync project` or `sync issue` to populate it.
+If a key isn't in the cache when you add it, the CLI tells you and points at `project sync` or `sync issue` to populate it.
 
 ## `tendril watchlist add KEYS...`
 
@@ -19,7 +19,7 @@ Uncached keys are reported after the add:
 ```
 Watchlist size: 3 entries after add.
 Not yet in cache: MMINT-999
-Run `tendril sync project KEY` or `tendril sync issue KEY` to populate.
+Run `tendril project sync KEY` or `tendril sync issue KEY` to populate.
 ```
 
 ## `tendril watchlist remove KEYS...`

@@ -57,7 +57,7 @@ class TendrilApp(App):
         return self._jira
 
     def run_incremental_sync(self) -> Worker:
-        """Kick off `sync incremental` in a background thread. Notifies on completion."""
+        """Kick off `tendril sync` (incremental refresh) in a background thread. Notifies on completion."""
         return self.run_worker(
             self._worker_incremental_sync,
             group="sync",

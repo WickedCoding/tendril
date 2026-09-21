@@ -156,7 +156,7 @@ class SprintRolloverScreen(Screen):
             if self._source is None:
                 self._set_status(
                     f"Source sprint {self.source_sprint_id} is not in the cache. "
-                    "Run `tendril sync incremental` and try again."
+                    "Run `tendril sync` and try again."
                 )
                 return
             self._issues = source_sprint_issues(session, self.source_sprint_id)

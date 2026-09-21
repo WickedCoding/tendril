@@ -19,10 +19,11 @@ For a throwaway trial without installing, `uvx tendril-jira config init` works t
 ## First sync
 
 ```sh
-tendril sync project MMINT   # pulls every issue in MMINT into the cache (paginated)
+tendril project sync MMINT   # pulls every issue in MMINT into the cache (paginated)
 tendril show MMINT-42        # prints an issue from the cache
-tendril sync incremental     # from then on, refreshes only what changed
+tendril sync                 # from then on, refreshes only what changed (all synced projects)
 tendril sync link-types      # caches the instance's issue-link types (Blocks, Relates, …)
+tendril project drop MMINT   # purge every cached row for MMINT (no confirmation)
 ```
 
 Run `sync link-types` at least once so the link modal in the TUI can offer a real chooser instead of a free-text field. Re-run only when your JIRA admin adds or renames a link type.
@@ -129,7 +130,7 @@ The field is assumed to be a JIRA labels-type custom field (payload shape `["fla
 
 - **Sync fills the cache; the watchlist and tags sit on top.** Separate tables, each opt-in.
 - **Every write refetches the touched issue.** No local mutation bypasses JIRA — the cache stays honest. Tags are local-only and never touch JIRA.
-- **Whole-project sync only.** Per-issue single fetches exist (`sync issue KEY`) but are a fallback; the intended workflow is `sync project KEY` once, then `sync incremental` from there.
+- **Whole-project sync only.** Per-issue single fetches exist (`sync issue KEY`) but are a fallback; the intended workflow is `project sync KEY` once, then `tendril sync` from there. `project drop KEY` reverses the first step.
 - **JIRA rename resilience.** If JIRA has moved an issue to another project, `sync issue OLDKEY` follows the redirect, cache is upserted under the new key, and any watchlist entry for the old key is migrated.
 - **Alembic runs on startup.** `init_schema` calls `alembic upgrade head` against the SQLite cache; every schema change is a migration in `src/tendril/migrations/versions/`.
 
