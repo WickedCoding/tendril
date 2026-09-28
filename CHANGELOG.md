@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `tendril search` filters the local cache offline by `--status`, `--project`, `--tag` (comma-separated lists, any value matches), `--assignee` (display name) and `--sprint` (sprint name, any state). Different options combine with AND; matching is exact but case-insensitive. At least one filter is required. `--json` emits `{"issues": [...]}` with key, project, summary, status, type, assignee, sprints, tags and updated time for LLM pipelines.
+- `tendril project drop KEY...` purges every cached row for one or more projects: issues, comments, links, sprint join rows and the project's sync state. Watchlist entries, local tags, shared sprint metadata and rollover history stay. Runs with no confirmation.
+
+### Changed
+- Project-level commands now live under a `project` group: `tendril sync project KEY...` is now `tendril project sync KEY...`.
+- Bare `tendril sync` is now the incremental refresh: it refetches issues changed since the last sync across every project you've synced. The `sync` group keeps only `sync issue` and `sync link-types`. TUI hints that named the old commands follow the new names.
+
+### Removed
+- `tendril sync project` and `tendril sync incremental`. Use `tendril project sync` and bare `tendril sync` instead.
+
+### Fixed
+- Issue and comment `created`/`updated` timestamps are now stored as UTC. The offset JIRA sends (`+0100`/`+0200`) used to be dropped, so the cache held wall-clock time that shifted by an hour across DST and could order issues edited around the switch incorrectly. Migration `0005` converts existing rows from the stored JIRA payload on next launch. Comments older than the 20 JIRA includes in an issue payload can't be converted this way; `tendril sync issue KEY` corrects them. The CLI and TUI render every timestamp in your local timezone.
+
 ## [1.4.1] - 2026-09-15
 
 ### Changed
