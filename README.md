@@ -30,6 +30,21 @@ Run `sync link-types` at least once so the link modal in the TUI can offer a rea
 
 See [docs/sync.md](docs/sync.md) for `sync issue` (single-issue fallback), the rename-migration behavior, and the intended workflow in detail.
 
+## Search
+
+Filter the cache offline. Every option is optional, but give at least one.
+
+```sh
+tendril search --project=MMINT --status="In Progress,In Review"
+tendril search --assignee="Jane Doe" --sprint="MMINT Sprint 12"
+tendril search --tag=logo,branding --json
+```
+
+- `--status`, `--project`, `--tag` take a comma-separated list; an issue matches if it has **any** of the values.
+- `--assignee` (display name) and `--sprint` (sprint name, any state) take one value.
+- Different options combine with **AND**. All matching is exact but case-insensitive.
+- `--json` prints `{"issues": [{"key", "project", "summary", "status", "issuetype", "assignee", "sprints", "tags", "updated"}, …]}`.
+
 ## Watchlist
 
 A marker layer on top of the cache — adding a key never touches JIRA. Watchlisted rows show a `★` marker in the TUI overview and render in the accent color.

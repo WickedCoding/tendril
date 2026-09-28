@@ -9,7 +9,7 @@ from tendril.tags.ops import add_tags, list_tags_for
 from tendril.config import Config
 from tendril.db.models import (
     Comment, Issue, IssueLink, IssueSprint, IssueTag, LinkType, ProjectSyncState,
-    Sprint, WatchlistEntry,
+    Sprint, User, WatchlistEntry,
 )
 from tendril.jira.fetch import JiraLike, fetch_issue, fetch_link_types, search_by_jql
 from tendril.sync.pipeline import upsert_issue
@@ -388,3 +388,72 @@ def search_issues(session: Session, query: str, limit: int = 50) -> list[Issue]:
         )
     )
     return issues[:limit]
+
+
+def _like_escape(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def find_issues(
+    session: Session,
+    *,
+    statuses: list[str] | None = None,
+    projects: list[str] | None = None,
+    assignee: str | None = None,
+    sprint: str | None = None,
+    tags: list[str] | None = None,
+) -> list[Issue]:
+    """Return cached issues matching every given filter, newest updated first.
+
+    Values inside one list are OR'd; different filters are AND'd. Every
+    comparison is exact but case-insensitive. `projects` match on the key
+    prefix (`PROJ-`), `assignee` on the user's display name, `sprint` on the
+    sprint name (any state). Raises `ValueError` when no filter is given.
+    """
+    statuses = [s.lower() for s in statuses or []]
+    projects = [p.lower() for p in projects or []]
+    tags = [t.lower() for t in tags or []]
+    if not (statuses or projects or assignee or sprint or tags):
+        raise ValueError("At least one filter is required.")
+
+    stmt = select(Issue)
+    if statuses:
+        stmt = stmt.where(func.lower(Issue.status).in_(statuses))
+    if projects:
+        stmt = stmt.where(or_(*(
+            func.lower(Issue.key).like(f"{_like_escape(p)}-%", escape="\\") for p in projects
+        )))
+    if assignee:
+        stmt = stmt.where(Issue.assignee_account_id.in_(
+            select(User.account_id).where(func.lower(User.display_name) == assignee.lower())
+        ))
+    if sprint:
+        stmt = stmt.where(Issue.key.in_(
+            select(IssueSprint.issue_key)
+            .join(Sprint, Sprint.id == IssueSprint.sprint_id)
+            .where(func.lower(Sprint.name) == sprint.lower())
+        ))
+    if tags:
+        stmt = stmt.where(Issue.key.in_(
+            select(IssueTag.issue_key).where(func.lower(IssueTag.tag).in_(tags))
+        ))
+
+    issues = list(session.scalars(stmt).all())
+    issues.sort(key=lambda i: (i.updated is None, -(i.updated.timestamp() if i.updated else 0)))
+    return issues
+
+
+def sprint_names_for(session: Session, keys: list[str]) -> dict[str, list[str]]:
+    """Return `{issue_key: [sprint names]}` for the given keys, in one query."""
+    out: dict[str, list[str]] = {}
+    if not keys:
+        return out
+    stmt = (
+        select(IssueSprint.issue_key, Sprint.name)
+        .join(Sprint, Sprint.id == IssueSprint.sprint_id)
+        .where(IssueSprint.issue_key.in_(keys))
+        .order_by(Sprint.id)
+    )
+    for key, name in session.execute(stmt).all():
+        out.setdefault(key, []).append(name)
+    return out

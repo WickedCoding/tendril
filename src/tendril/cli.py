@@ -14,6 +14,7 @@ from tendril.tags import ops as tag_ops
 from tendril.db.engine import build_engine, session_factory
 from tendril.db.models import Comment, Issue, IssueLink
 from tendril.db.schema import init_schema
+from tendril.db.users import format_user, resolve_display_names
 from tendril.jira import client as jira_client
 from tendril.sync import commands as sync_ops
 from tendril.text import plural
@@ -371,6 +372,98 @@ def show(key: str) -> None:
         link_count = session.query(IssueLink).filter(IssueLink.source_key == key).count()
         comment_count = session.query(Comment).filter(Comment.issue_key == key).count()
         console.print(f"\n[dim]{plural(link_count, 'link')}, {plural(comment_count, 'comment')}[/dim]")
+    finally:
+        close()
+
+
+def _split_csv(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [part.strip() for part in value.split(",") if part.strip()]
+
+
+@app.command()
+def search(
+    status: str | None = typer.Option(None, "--status", help="Comma-separated statuses (any of)."),
+    project: str | None = typer.Option(None, "--project", help="Comma-separated project keys (any of)."),
+    assignee: str | None = typer.Option(
+        None, "--assignee", help="Assignee display name (exact, case-insensitive).",
+    ),
+    sprint: str | None = typer.Option(None, "--sprint", help="Sprint name (exact, case-insensitive)."),
+    tag: str | None = typer.Option(None, "--tag", help="Comma-separated local tags (any of)."),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+) -> None:
+    """Find cached issues by status, project, assignee, sprint, or tag. Filters combine with AND."""
+    import json as _json
+
+    statuses = _split_csv(status)
+    projects = _split_csv(project)
+    tags = _split_csv(tag)
+    assignee = (assignee or "").strip() or None
+    sprint = (sprint or "").strip() or None
+    if not (statuses or projects or assignee or sprint or tags):
+        raise typer.BadParameter(
+            "Give at least one of --status, --project, --assignee, --sprint, --tag."
+        )
+
+    session, close = _open_session()
+    try:
+        issues = sync_ops.find_issues(
+            session,
+            statuses=statuses,
+            projects=projects,
+            assignee=assignee,
+            sprint=sprint,
+            tags=tags,
+        )
+        keys = [i.key for i in issues]
+        names = resolve_display_names(session, (i.assignee_account_id for i in issues))
+        sprints = sync_ops.sprint_names_for(session, keys)
+        tags_by_key = dict(tag_ops.list_all_tagged(session))
+
+        if json_out:
+            payload = {
+                "issues": [
+                    {
+                        "key": i.key,
+                        "project": i.key.rsplit("-", 1)[0],
+                        "summary": i.summary,
+                        "status": i.status,
+                        "issuetype": i.issuetype,
+                        "assignee": (
+                            names.get(i.assignee_account_id, i.assignee_account_id)
+                            if i.assignee_account_id else None
+                        ),
+                        "sprints": sprints.get(i.key, []),
+                        "tags": tags_by_key.get(i.key, []),
+                        "updated": i.updated.isoformat() if i.updated else None,
+                    }
+                    for i in issues
+                ]
+            }
+            console.print_json(_json.dumps(payload))
+            return
+
+        if not issues:
+            console.print("[dim]No matching issues.[/dim]")
+            return
+        table = Table(title=f"Search — {plural(len(issues), 'issue')}")
+        table.add_column("key")
+        table.add_column("status")
+        table.add_column("assignee")
+        table.add_column("sprints")
+        table.add_column("tags")
+        table.add_column("summary")
+        for i in issues:
+            table.add_row(
+                i.key,
+                i.status or "-",
+                format_user(i.assignee_account_id, names),
+                ", ".join(sprints.get(i.key, [])),
+                ", ".join(tags_by_key.get(i.key, [])),
+                i.summary or "",
+            )
+        console.print(table)
     finally:
         close()
 

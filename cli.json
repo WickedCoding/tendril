@@ -19,6 +19,66 @@
       ]
     },
     {
+      "name": "search",
+      "description": "Find cached issues by status, project, assignee, sprint, or tag. Filters combine with AND.",
+      "parameters": [
+        {
+          "name": "status",
+          "kind": "option",
+          "flags": ["--status"],
+          "type": "str",
+          "description": "Comma-separated statuses (any of).",
+          "optional": true,
+          "default": null
+        },
+        {
+          "name": "project",
+          "kind": "option",
+          "flags": ["--project"],
+          "type": "str",
+          "description": "Comma-separated project keys (any of).",
+          "optional": true,
+          "default": null
+        },
+        {
+          "name": "assignee",
+          "kind": "option",
+          "flags": ["--assignee"],
+          "type": "str",
+          "description": "Assignee display name (exact, case-insensitive).",
+          "optional": true,
+          "default": null
+        },
+        {
+          "name": "sprint",
+          "kind": "option",
+          "flags": ["--sprint"],
+          "type": "str",
+          "description": "Sprint name (exact, case-insensitive).",
+          "optional": true,
+          "default": null
+        },
+        {
+          "name": "tag",
+          "kind": "option",
+          "flags": ["--tag"],
+          "type": "str",
+          "description": "Comma-separated local tags (any of).",
+          "optional": true,
+          "default": null
+        },
+        {
+          "name": "json_out",
+          "kind": "option",
+          "flags": ["--json"],
+          "type": "bool",
+          "description": "Emit machine-readable JSON.",
+          "optional": true,
+          "default": false
+        }
+      ]
+    },
+    {
       "name": "config init",
       "description": "Interactively write ~/.config/tendril/config.toml and store the API token.",
       "parameters": []

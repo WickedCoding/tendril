@@ -20,6 +20,7 @@ uv run tendril project drop MMINT           # purge every cached row for the pro
 uv run tendril sync                         # refresh only issues changed since last sync (all synced projects)
 uv run tendril sync issue MMINT-42          # single-issue fallback (follows JIRA renames)
 uv run tendril show MMINT-42                # print cached issue
+uv run tendril search --project=MMINT --status="In Progress" --json  # filter the cache (lists OR, options AND)
 uv run tendril watchlist add MMINT-42       # marker only; never touches JIRA
 uv run pytest                               # unit + Textual Pilot smoke tests
 uv run pytest tests/test_sync_pipeline.py::test_name  # single test
