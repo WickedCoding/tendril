@@ -13,7 +13,7 @@ from tendril.sync.commands import (
     list_all_issues,
     remove_from_watchlist,
 )
-from tendril.text import plural
+from tendril.text import local_time, plural
 from tendril.tui.sorting import SortColumn, sort_rows
 
 
@@ -105,9 +105,7 @@ class WatchlistScreen(Screen):
             is_watchlisted = r["watchlisted"]
             style = accent if is_watchlisted else Style()
             marker = "★" if is_watchlisted else " "
-            updated = (
-                issue.updated.strftime("%Y-%m-%d %H:%M") if issue.updated else "—"
-            )
+            updated = local_time(issue.updated)
             table.add_row(
                 Text(marker, style=style),
                 Text(issue.key, style=style),

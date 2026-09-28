@@ -17,7 +17,7 @@ from tendril.db.schema import init_schema
 from tendril.db.users import format_user, resolve_display_names
 from tendril.jira import client as jira_client
 from tendril.sync import commands as sync_ops
-from tendril.text import plural
+from tendril.text import local_time, plural
 
 app = typer.Typer(help="tendril — a keyboard-driven JIRA companion.")
 config_app = typer.Typer(help="Manage tendril configuration.", no_args_is_help=True)
@@ -336,7 +336,7 @@ def watchlist_list_cmd() -> None:
                 entry.issue_key,
                 (issue.status if issue else "[dim]-not synced-[/dim]") or "-",
                 (issue.summary if issue else "") or "",
-                str(issue.updated) if issue and issue.updated else "-",
+                local_time(issue.updated if issue else None, missing="-"),
                 ", ".join(tags),
                 entry.note or "",
             )
@@ -362,11 +362,11 @@ def show(key: str) -> None:
         table.add_row("[bold]type[/bold]", issue.issuetype or "")
         table.add_row("[bold]assignee[/bold]", issue.assignee_account_id or "-")
         table.add_row("[bold]reporter[/bold]", issue.reporter_account_id or "-")
-        table.add_row("[bold]created[/bold]", str(issue.created) if issue.created else "-")
-        table.add_row("[bold]updated[/bold]", str(issue.updated) if issue.updated else "-")
+        table.add_row("[bold]created[/bold]", local_time(issue.created, missing="-"))
+        table.add_row("[bold]updated[/bold]", local_time(issue.updated, missing="-"))
         table.add_row("[bold]duedate[/bold]", str(issue.duedate) if issue.duedate else "-")
         table.add_row("[bold]parent[/bold]", issue.parent_key or "-")
-        table.add_row("[bold]synced[/bold]", str(issue.last_synced_at))
+        table.add_row("[bold]synced[/bold]", local_time(issue.last_synced_at))
         console.print(table)
 
         link_count = session.query(IssueLink).filter(IssueLink.source_key == key).count()

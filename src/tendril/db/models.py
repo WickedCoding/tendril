@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import Float, Index, JSON, Date, DateTime, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Float, Index, JSON, Date, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+from tendril.db.types import UTCDateTime
 
 
 class Base(DeclarativeBase):
@@ -16,8 +18,8 @@ class ProjectSyncState(Base):
     __tablename__ = "project_sync_state"
 
     project_key: Mapped[str] = mapped_column(String, primary_key=True)
-    last_full_sync_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    last_incremental_sync_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_full_sync_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    last_incremental_sync_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
 
 class User(Base):
@@ -37,14 +39,14 @@ class Issue(Base):
     issuetype: Mapped[str | None] = mapped_column(String, nullable=True)
     assignee_account_id: Mapped[str | None] = mapped_column(String, nullable=True)
     reporter_account_id: Mapped[str | None] = mapped_column(String, nullable=True)
-    created: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    updated: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    updated: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     duedate: Mapped[date | None] = mapped_column(Date, nullable=True)
     parent_key: Mapped[str | None] = mapped_column(String, nullable=True)
     story_points: Mapped[float | None] = mapped_column(Float, nullable=True)
     skills: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     raw_json: Mapped[dict] = mapped_column(JSON, nullable=False)
-    last_synced_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    last_synced_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
 
 
 class IssueLink(Base):
@@ -71,15 +73,15 @@ class Comment(Base):
     issue_key: Mapped[str] = mapped_column(String, nullable=False)
     author_account_id: Mapped[str | None] = mapped_column(String, nullable=True)
     body: Mapped[str] = mapped_column(Text, nullable=False)
-    created: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    updated: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    updated: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
 
 class WatchlistEntry(Base):
     __tablename__ = "watchlist_entry"
 
     issue_key: Mapped[str] = mapped_column(String, primary_key=True)
-    added_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    added_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
@@ -107,9 +109,9 @@ class Sprint(Base):
     state: Mapped[str] = mapped_column(String, nullable=False)
     board_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     goal: Mapped[str | None] = mapped_column(Text, nullable=True)
-    start_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    end_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    complete_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    start_date: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    end_date: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    complete_date: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
 
 class IssueSprint(Base):
@@ -177,8 +179,8 @@ class RolloverAttempt(Base):
     target_order_keys: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     completed_step: Mapped[str | None] = mapped_column(String, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
 
 
 class RolloverLog(Base):
@@ -194,4 +196,4 @@ class RolloverLog(Base):
     target_sprint_id: Mapped[int] = mapped_column(Integer, nullable=False)
     target_sprint_name: Mapped[str] = mapped_column(String, nullable=False)
     moved_issue_keys: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
-    committed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    committed_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)

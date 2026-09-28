@@ -30,6 +30,7 @@ from tendril.tui.screens.flags_modal import FlagsModal
 from tendril.tui.screens.link_modal import LinkModal
 from tendril.tui.screens.surface_card_modal import SurfaceCardModal
 from tendril.tui.screens.tags_modal import TagsModal
+from tendril.text import local_time
 from tendril.tui.sorting import SortColumn, sort_rows
 
 
@@ -145,10 +146,10 @@ class IssueDetailScreen(Screen):
                 f"parent: {issue.parent_key or '—'}"
             )
             self.query_one("#meta-line-2", Label).update(
-                f"created: {issue.created or '—'}   "
-                f"updated: {issue.updated or '—'}   "
+                f"created: {local_time(issue.created)}   "
+                f"updated: {local_time(issue.updated)}   "
                 f"due: {issue.duedate or '—'}   "
-                f"synced: {issue.last_synced_at}"
+                f"synced: {local_time(issue.last_synced_at)}"
                 f"{tag_line}"
             )
 
@@ -548,7 +549,7 @@ def _format_comments(comments: list[Comment], names: dict[str, str]) -> str:
     lines: list[str] = []
     for c in comments:
         author = format_user(c.author_account_id, names) if c.author_account_id else "unknown"
-        header = f"— {author} · {c.created or ''}"
+        header = f"— {author} · {local_time(c.created, missing='')}"
         lines.append(header)
         lines.append(c.body or "")
         lines.append("")

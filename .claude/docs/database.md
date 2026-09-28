@@ -9,6 +9,7 @@ Table names are **singular** (`issue`, not `issues`). Column names come straight
 - `issue.issuetype` — one word, not `issue_type`
 - `issue.parent_key` — populated for both Sub-tasks and Story→Epic; JIRA Cloud unified both under `fields.parent`
 - `issue.raw_json` — the untouched fetch payload, kept so we can re-derive fields without a resync
+- **Every DATETIME column is UTC.** SQLite has no timezone type; the models use `db.types.UTCDateTime`, which converts aware values to UTC before storing and hands back aware UTC on read. JIRA sends local offsets (`+0100`/`+0200`), so a raw `sqlite3` query shows UTC, not what the JIRA UI shows. Render through `text.local_time()`. Revision 0005 converted rows written before this rule.
 
 ## Tables
 
