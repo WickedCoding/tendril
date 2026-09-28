@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-09-28
+
 ### Added
 - `tendril search` filters the local cache offline by `--status`, `--project`, `--tag` (comma-separated lists, any value matches), `--assignee` (display name) and `--sprint` (sprint name, any state). Different options combine with AND; matching is exact but case-insensitive. At least one filter is required. `--json` emits `{"issues": [...]}` with key, project, summary, status, type, assignee, sprints, tags and updated time for LLM pipelines.
 - `tendril project drop KEY...` purges every cached row for one or more projects: issues, comments, links, sprint join rows and the project's sync state. Watchlist entries, local tags, shared sprint metadata and rollover history stay. Runs with no confirmation.
