@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Any
 
 from sqlalchemy import Float, Index, JSON, Date, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -73,6 +74,9 @@ class Comment(Base):
     issue_key: Mapped[str] = mapped_column(String, nullable=False)
     author_account_id: Mapped[str | None] = mapped_column(String, nullable=True)
     body: Mapped[str] = mapped_column(Text, nullable=False)
+    # The body as JIRA sent it (ADF dict or wiki string), rendered at display time.
+    # NULL for rows synced before migration 0006 that it couldn't backfill.
+    body_raw: Mapped[Any | None] = mapped_column(JSON, nullable=True)
     created: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     updated: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 

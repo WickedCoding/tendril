@@ -24,7 +24,7 @@ from tendril.tags import ops as tag_ops
 from tendril.tags.matcher import find_surfaces
 from tendril.db.links import link_phrase, link_phrases
 from tendril.db.users import format_user, resolve_display_names
-from tendril.jira.render import render_description
+from tendril.jira.render import render_body, render_description
 from tendril.operations import ops as write_ops
 from tendril.tui.screens.comment_modal import CommentModal
 from tendril.tui.screens.flags_modal import FlagsModal
@@ -530,14 +530,14 @@ def _status_cell(target_key: str, summaries: dict[str, tuple[str | None, str | N
         return "[dim]not synced[/dim]"
     return summaries[target_key][1] or "[dim]—[/dim]"
 
-def _format_comments(comments: list[Comment], names: dict[str, str]) -> str:
+def _format_comments(comments: list[Comment], names: dict[str, str]) -> Text:
     if not comments:
-        return "[no comments]"
-    lines: list[str] = []
+        return Text("[no comments]")
+    blocks: list[Text] = []
     for c in comments:
         author = format_user(c.author_account_id, names) if c.author_account_id else "unknown"
-        header = f"— {author} · {local_time(c.created, missing='')}"
-        lines.append(header)
-        lines.append(c.body or "")
-        lines.append("")
-    return "\n".join(lines).rstrip()
+        header = Text(f"— {author} · {local_time(c.created, missing='')}")
+        # Rows synced before migration 0006 may lack the raw body; the flattened text still reads.
+        body = render_body(c.body_raw) if c.body_raw is not None else None
+        blocks.append(Text("\n").join([header, body if body is not None else Text(c.body or "")]))
+    return Text("\n\n").join(blocks)

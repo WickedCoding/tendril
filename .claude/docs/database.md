@@ -53,7 +53,8 @@ One row per JIRA comment. Upserted by JIRA's comment id.
 | `id`                 | TEXT PK | JIRA comment id                                  |
 | `issue_key`          | TEXT    | Parent issue                                     |
 | `author_account_id`  | TEXT    |                                                  |
-| `body`               | TEXT    | Flattened via `adf_to_text` — ADF loses fidelity |
+| `body`               | TEXT    | Flattened via `adf_to_text` — fallback only      |
+| `body_raw`           | JSON    | Body as JIRA sent it (ADF dict or wiki string); rendered by `render_body` at display time. NULL for rows migration 0006 couldn't backfill |
 | `created`            | DATETIME |                                                 |
 | `updated`            | DATETIME |                                                 |
 

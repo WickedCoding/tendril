@@ -24,8 +24,15 @@ from rich.text import Text
 
 
 def render_description(raw_json: dict | None) -> Text | None:
-    """Pick the right renderer based on the shape JIRA returned. None → no description."""
-    body = ((raw_json or {}).get("fields") or {}).get("description")
+    """Render an issue's description from its stored payload. None → no description."""
+    return render_body(((raw_json or {}).get("fields") or {}).get("description"))
+
+
+def render_body(body: Any) -> Text | None:
+    """Render one JIRA rich-text value: a description or a comment body.
+
+    Picks the renderer based on the shape JIRA returned. None → nothing to show.
+    """
     if body is None:
         return None
     if isinstance(body, dict):

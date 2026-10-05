@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Info, note, warning, error and success panels in descriptions render as a coloured `│` bar with the panel's icon, keeping their content and styling. They used to show as `[panel skipped]`, so their content was lost in the TUI and in `tendril show` (including `--json`).
 - Expand sections in descriptions render as `▾ Title` with the body indented underneath. The title used to vanish and the body's paragraphs and list items ran together into one line.
 - Images and attached files in descriptions render as a placeholder with the filename and size, e.g. `[image: image-20260813-085514.png, 930×589]` or `[file: spec.pdf]`. They used to vanish without a trace. Open the issue in JIRA to see the image itself.
+- Comments in the TUI render like descriptions: paragraphs, lists, panels, task lists, code, bold and links. They used to be flattened to one run-on line at sync time. Migration `0006` restores the structure for existing comments from the stored JIRA payload on next launch. Older comments beyond the ~20 JIRA embeds in an issue keep the flat text until `tendril sync issue KEY`.
 - Status lozenges render as `[TEXT]` and date nodes as `YYYY-MM-DD`. Both used to vanish from the middle of a sentence.
 
 ## [1.5.0] - 2026-09-28

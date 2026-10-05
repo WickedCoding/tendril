@@ -122,10 +122,12 @@ def _upsert_comments(session: Session, dto: IssueDTO) -> None:
                 issue_key=dto.key,
                 author_account_id=c.author.account_id if c.author else None,
                 body=c.body,
+                body_raw=c.body_raw,
                 created=c.created,
                 updated=c.updated,
             ))
         else:
             row.body = c.body
+            row.body_raw = c.body_raw
             row.updated = c.updated
             row.author_account_id = c.author.account_id if c.author else row.author_account_id

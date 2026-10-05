@@ -19,6 +19,7 @@ class CommentDTO(BaseModel):
     id: str
     author: UserDTO | None = None
     body: str
+    body_raw: Any = None
     created: datetime | None = None
     updated: datetime | None = None
 
@@ -277,6 +278,7 @@ def _parse_comments(payload: dict) -> list[CommentDTO]:
             id=str(c.get("id", "")),
             author=_parse_user(c.get("author")),
             body=_body_to_text(c.get("body")),
+            body_raw=c.get("body"),
             created=c.get("created"),
             updated=c.get("updated"),
         ))
