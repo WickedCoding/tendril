@@ -156,6 +156,66 @@ class TestAdf:
         }
         assert adf_to_rich(doc).plain == "  3. x\n  4. y"
 
+    def test_task_list_shows_state_per_item(self) -> None:
+        doc = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "taskList",
+                    "content": [
+                        {
+                            "type": "taskItem",
+                            "attrs": {"state": "DONE"},
+                            "content": [{"type": "text", "text": "a."}],
+                        },
+                        {
+                            "type": "taskItem",
+                            "attrs": {"state": "TODO"},
+                            "content": [{"type": "text", "text": "b"}],
+                        },
+                    ],
+                }
+            ],
+        }
+        assert adf_to_rich(doc).plain == "  ☑ a.\n  ☐ b"
+
+    def test_nested_task_list_indents_under_previous_item(self) -> None:
+        doc = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "taskList",
+                    "content": [
+                        {
+                            "type": "taskItem",
+                            "attrs": {"state": "TODO"},
+                            "content": [{"type": "text", "text": "parent"}],
+                        },
+                        {
+                            "type": "taskList",
+                            "content": [
+                                {
+                                    "type": "taskItem",
+                                    "attrs": {"state": "DONE"},
+                                    "content": [{"type": "text", "text": "child"}],
+                                }
+                            ],
+                        },
+                        {
+                            "type": "taskItem",
+                            "attrs": {"state": "TODO"},
+                            "content": [{"type": "text", "text": "sibling"}],
+                        },
+                    ],
+                }
+            ],
+        }
+        assert adf_to_rich(doc).plain == (
+            "  ☐ parent\n"
+            "      ☑ child\n"
+            "  ☐ sibling"
+        )
+
     def test_code_block_indented(self) -> None:
         doc = {
             "type": "doc",

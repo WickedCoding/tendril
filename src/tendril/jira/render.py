@@ -4,7 +4,7 @@ JIRA gives us two shapes for the same field: ADF (structured JSON, from the v3
 API and enhanced_jql) and legacy wiki markup (plain string, from the v2 API
 that atlassian-python-api's `.issue()` hits). Both are handled here.
 
-Deliberately limited: paragraphs, headings, bullet/ordered lists, blockquotes,
+Deliberately limited: paragraphs, headings, bullet/ordered/task lists, blockquotes,
 inline code + code blocks, horizontal rules, and inline marks (bold, italic,
 code, strike, underline, link). Tables and panels are skipped — they don't fit
 a narrow terminal column well and were called out as out-of-scope.
@@ -58,14 +58,17 @@ def adf_to_rich(node: dict) -> Text:
         return inner
 
     if node_type == "bulletList":
-        return _adf_list(node.get("content") or [], marker=lambda _i: "• ")
+        return _adf_list(node.get("content") or [], marker=lambda _i, _item: "• ")
 
     if node_type == "orderedList":
         start = int((node.get("attrs") or {}).get("order", 1))
         return _adf_list(
             node.get("content") or [],
-            marker=lambda i: f"{start + i}. ",
+            marker=lambda i, _item: f"{start + i}. ",
         )
+
+    if node_type == "taskList":
+        return _adf_list(node.get("content") or [], marker=_task_marker)
 
     if node_type == "codeBlock":
         raw = _adf_plain_text(node.get("content") or [])
@@ -91,21 +94,45 @@ def _join_blocks(children: list[Any]) -> Text:
     return Text(_BLOCK_SEP).join(parts)
 
 
+_TASK_BOXES = {"DONE": "☑", "TODO": "☐"}
+
+
+def _task_marker(_idx: int, item: dict) -> str:
+    state = (item.get("attrs") or {}).get("state")
+    return f"{_TASK_BOXES.get(state, '☐')} "
+
+
 def _adf_list(items: list[Any], *, marker) -> Text:
-    lines: list[Text] = []
+    entries: list[tuple[str, Text]] = []
     idx = 0
     for item in items:
-        if not isinstance(item, dict) or item.get("type") != "listItem":
+        if not isinstance(item, dict):
             continue
-        body = _adf_list_item(item)
-        prefix = "  " + marker(idx)
+        item_type = item.get("type")
+        if item_type == "taskList":
+            # ADF nests a task list as a sibling right after the item it belongs
+            # under, not inside it. Attach it to that item so it indents the same
+            # way a nested bullet list does.
+            nested = adf_to_rich(item)
+            if entries:
+                prefix, body = entries[-1]
+                entries[-1] = (prefix, body + Text("\n") + nested)
+            else:
+                entries.append(("", nested))
+            continue
+        if item_type not in ("listItem", "taskItem"):
+            continue
+        entries.append(("  " + marker(idx, item), _adf_list_item(item)))
+        idx += 1
+
+    lines: list[Text] = []
+    for prefix, body in entries:
         combined = Text(prefix) + body
         # Multi-line items (nested paragraphs / lists): indent continuation
         # under the marker so the tree reads visually.
         if "\n" in combined.plain:
             combined = _indent_continuation(combined, " " * len(prefix))
         lines.append(combined)
-        idx += 1
     return Text("\n").join(lines)
 
 
@@ -122,6 +149,9 @@ def _indent_continuation(text: Text, indent: str) -> Text:
 
 def _adf_list_item(item: dict) -> Text:
     """Render a listItem's children — paragraphs and nested lists — into one Text."""
+    if item.get("type") == "taskItem":
+        # taskItem holds inline content directly, without a paragraph wrapper.
+        return _adf_inline(item.get("content") or [])
     parts: list[Text] = []
     for child in item.get("content") or []:
         if not isinstance(child, dict):

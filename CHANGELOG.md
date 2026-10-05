@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tendril show KEY` prints the description (wrapped to the terminal) and every linked issue with its phrase, summary and status, plus child issues. Assignee and reporter show display names instead of account IDs. `--json` emits the same data (description as plain text, `links`, `children`, `comment_count`) for LLM pipelines.
 - Sprint rollover screen: `s` runs an incremental sync from JIRA and replaces `r` (reload from cache). Your selection and target ordering survive the sync.
 
+### Fixed
+- ADF task lists in descriptions render one item per line as `☑` (done) or `☐` (to do), with nested task lists indented. They used to collapse into a single line with the state dropped.
+
 ## [1.5.0] - 2026-09-28
 
 ### Added
