@@ -5,14 +5,15 @@ API and enhanced_jql) and legacy wiki markup (plain string, from the v2 API
 that atlassian-python-api's `.issue()` hits). Both are handled here.
 
 Deliberately limited: paragraphs, headings, bullet/ordered/task lists, blockquotes,
-inline code + code blocks, horizontal rules, and inline marks (bold, italic,
-code, strike, underline, link). Tables and panels are skipped — they don't fit
-a narrow terminal column well and were called out as out-of-scope.
+panels, inline code + code blocks, horizontal rules, status lozenges, dates, and
+inline marks (bold, italic, code, strike, underline, link). Tables are skipped —
+they don't fit a narrow terminal column well and were called out as out-of-scope.
 """
 
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from typing import Any
 
 from rich.style import Style
@@ -81,11 +82,46 @@ def adf_to_rich(node: dict) -> Text:
     if node_type == "rule":
         return Text("─" * 40, style="dim")
 
-    if node_type in ("panel", "table"):
-        return Text(f"[{node_type} skipped]", style="dim")
+    if node_type == "panel":
+        return _adf_panel(node)
+
+    if node_type == "table":
+        return Text("[table skipped]", style="dim")
 
     # Unknown block — try to recover its inline children so we don't lose content.
     return _adf_inline(node.get("content") or [])
+
+
+# panelType → (icon, colour). `custom` panels and unknown types fall back to a plain bar.
+_PANEL_STYLES = {
+    "info": ("ℹ", "blue"),
+    "note": ("✎", "magenta"),
+    "warning": ("⚠", "yellow"),
+    "error": ("✖", "red"),
+    "success": ("✔", "green"),
+}
+
+
+def _adf_panel(node: dict) -> Text:
+    """Render a panel as a coloured bar with its type icon on the first line.
+
+    Unlike blockquotes, the panel body keeps its inline styling: panels often
+    carry the bold warnings that matter most.
+    """
+    panel_type = (node.get("attrs") or {}).get("panelType")
+    icon, colour = _PANEL_STYLES.get(panel_type, ("", "dim"))
+    body = _join_blocks(node.get("content") or [])
+    if not body.plain:
+        return body
+    first = f"{icon} " if icon else ""
+    rest = " " * len(first)
+    out: list[Text] = []
+    for i, line in enumerate(body.split("\n", allow_blank=True)):
+        prefixed = Text("│ ", style=colour)
+        prefixed.append(first if i == 0 else rest, style=colour)
+        prefixed.append_text(line)
+        out.append(prefixed)
+    return Text("\n").join(out)
 
 
 def _join_blocks(children: list[Any]) -> Text:
@@ -179,6 +215,12 @@ def _adf_inline(nodes: list[Any]) -> Text:
         elif t == "emoji":
             attrs = n.get("attrs") or {}
             out.append(attrs.get("text") or attrs.get("shortName") or "")
+        elif t == "status":
+            attrs = n.get("attrs") or {}
+            colour = _STATUS_COLOURS.get(attrs.get("color"), "")
+            out.append(f"[{attrs.get('text') or '?'}]", style=f"bold {colour}".strip())
+        elif t == "date":
+            out.append(_format_date((n.get("attrs") or {}).get("timestamp")))
         elif t == "inlineCard":
             attrs = n.get("attrs") or {}
             url = attrs.get("url") or ""
@@ -189,6 +231,29 @@ def _adf_inline(nodes: list[Any]) -> Text:
             if isinstance(content, list):
                 out.append_text(_adf_inline(content))
     return out
+
+
+# ADF status lozenge colours → Rich colours. `neutral` and unknowns stay uncoloured.
+_STATUS_COLOURS = {
+    "green": "green",
+    "red": "red",
+    "yellow": "yellow",
+    "blue": "blue",
+    "purple": "magenta",
+}
+
+
+def _format_date(timestamp: Any) -> str:
+    """ADF date node: epoch milliseconds at UTC midnight → `YYYY-MM-DD`.
+
+    Formatted in UTC on purpose: the node is a calendar date, and converting to
+    local time would shift it a day for anyone west of Greenwich.
+    """
+    try:
+        ms = int(timestamp)
+    except (TypeError, ValueError):
+        return "[date?]"
+    return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).date().isoformat()
 
 
 def _marks_to_style(marks: list[Any]) -> Style:

@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - ADF task lists in descriptions render one item per line as `☑` (done) or `☐` (to do), with nested task lists indented. They used to collapse into a single line with the state dropped.
+- Info, note, warning, error and success panels in descriptions render as a coloured `│` bar with the panel's icon, keeping their content and styling. They used to show as `[panel skipped]`, so their content was lost in the TUI and in `tendril show` (including `--json`).
+- Status lozenges render as `[TEXT]` and date nodes as `YYYY-MM-DD`. Both used to vanish from the middle of a sentence.
 
 ## [1.5.0] - 2026-09-28
 

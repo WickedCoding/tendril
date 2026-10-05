@@ -232,18 +232,69 @@ class TestAdf:
         out = adf_to_rich({"type": "doc", "content": [{"type": "rule"}]})
         assert out.plain == "─" * 40
 
-    def test_panel_is_skipped(self) -> None:
+    def test_panel_renders_bar_with_type_icon(self) -> None:
         doc = {
             "type": "doc",
             "content": [
                 {"type": "paragraph", "content": [{"type": "text", "text": "before"}]},
-                {"type": "panel", "content": [{"type": "text", "text": "hidden"}]},
+                {
+                    "type": "panel",
+                    "attrs": {"panelType": "warning"},
+                    "content": [
+                        {
+                            "type": "paragraph",
+                            "content": [{"type": "text", "text": "careful", "marks": [{"type": "strong"}]}],
+                        },
+                        {"type": "paragraph", "content": [{"type": "text", "text": "second"}]},
+                    ],
+                },
                 {"type": "paragraph", "content": [{"type": "text", "text": "after"}]},
             ],
         }
-        assert "hidden" not in adf_to_rich(doc).plain
-        assert "before" in adf_to_rich(doc).plain
-        assert "after" in adf_to_rich(doc).plain
+        out = adf_to_rich(doc)
+        assert out.plain == "before\n\n│ ⚠ careful\n│   \n│   second\n\nafter"
+        # Inline styling inside the panel survives the prefixing.
+        assert any(out.plain[s.start:s.end] == "careful" for s in _spans_with_style(out, "bold"))
+
+    def test_panel_unknown_type_gets_plain_bar(self) -> None:
+        doc = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "panel",
+                    "attrs": {"panelType": "custom"},
+                    "content": [{"type": "paragraph", "content": [{"type": "text", "text": "x"}]}],
+                }
+            ],
+        }
+        assert adf_to_rich(doc).plain == "│ x"
+
+    def test_status_and_date_inline(self) -> None:
+        doc = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {"type": "text", "text": "Owner "},
+                        {"type": "status", "attrs": {"text": "TBD", "color": "red"}},
+                        {"type": "text", "text": " ships on "},
+                        {"type": "date", "attrs": {"timestamp": "1787788800000"}},
+                        {"type": "text", "text": "."},
+                    ],
+                }
+            ],
+        }
+        assert adf_to_rich(doc).plain == "Owner [TBD] ships on 2026-08-27."
+
+    def test_date_with_bad_timestamp(self) -> None:
+        doc = {
+            "type": "doc",
+            "content": [
+                {"type": "paragraph", "content": [{"type": "date", "attrs": {"timestamp": "nope"}}]}
+            ],
+        }
+        assert adf_to_rich(doc).plain == "[date?]"
 
     def test_blockquote_prefixes_lines(self) -> None:
         doc = {
