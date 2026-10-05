@@ -5,7 +5,7 @@ API and enhanced_jql) and legacy wiki markup (plain string, from the v2 API
 that atlassian-python-api's `.issue()` hits). Both are handled here.
 
 Deliberately limited: paragraphs, headings, bullet/ordered/task lists, blockquotes,
-panels, inline code + code blocks, horizontal rules, status lozenges, dates, and
+panels, expands, inline code + code blocks, horizontal rules, status lozenges, dates, and
 inline marks (bold, italic, code, strike, underline, link). Tables are skipped —
 they don't fit a narrow terminal column well and were called out as out-of-scope.
 """
@@ -85,6 +85,9 @@ def adf_to_rich(node: dict) -> Text:
     if node_type == "panel":
         return _adf_panel(node)
 
+    if node_type in ("expand", "nestedExpand"):
+        return _adf_expand(node)
+
     if node_type == "table":
         return Text("[table skipped]", style="dim")
 
@@ -113,12 +116,33 @@ def _adf_panel(node: dict) -> Text:
     body = _join_blocks(node.get("content") or [])
     if not body.plain:
         return body
-    first = f"{icon} " if icon else ""
-    rest = " " * len(first)
+    first = f"│ {icon} " if icon else "│ "
+    return _prefix_styled(body, first, "│ " + " " * (len(first) - 2), style=colour)
+
+
+def _adf_expand(node: dict) -> Text:
+    """Render an expand as its bold title with the body indented underneath.
+
+    A terminal can't collapse, so the body is always shown; the `▾` marks where
+    the collapsible section starts.
+    """
+    title = ((node.get("attrs") or {}).get("title") or "").strip() or "Details"
+    header = Text("▾ ", style="dim")
+    header.append(title, style="bold")
+    body = _join_blocks(node.get("content") or [])
+    if not body.plain:
+        return header
+    return Text("\n").join([header, _prefix_styled(body, "  ", "  ")])
+
+
+def _prefix_styled(body: Text, first: str, rest: str, *, style: str = "") -> Text:
+    """Prefix the first line of `body` with `first` and every later line with `rest`.
+
+    Unlike `_prefix_lines`, the body's own spans (bold, links, …) survive.
+    """
     out: list[Text] = []
     for i, line in enumerate(body.split("\n", allow_blank=True)):
-        prefixed = Text("│ ", style=colour)
-        prefixed.append(first if i == 0 else rest, style=colour)
+        prefixed = Text(first if i == 0 else rest, style=style)
         prefixed.append_text(line)
         out.append(prefixed)
     return Text("\n").join(out)

@@ -269,6 +269,57 @@ class TestAdf:
         }
         assert adf_to_rich(doc).plain == "│ x"
 
+    def test_expand_shows_title_and_indented_body(self) -> None:
+        doc = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "expand",
+                    "attrs": {"title": "How to test"},
+                    "content": [
+                        {
+                            "type": "paragraph",
+                            "content": [{"type": "text", "text": "Open", "marks": [{"type": "strong"}]}],
+                        },
+                        {
+                            "type": "bulletList",
+                            "content": [
+                                {
+                                    "type": "listItem",
+                                    "content": [
+                                        {"type": "paragraph", "content": [{"type": "text", "text": "a"}]}
+                                    ],
+                                },
+                                {
+                                    "type": "listItem",
+                                    "content": [
+                                        {"type": "paragraph", "content": [{"type": "text", "text": "b"}]}
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                }
+            ],
+        }
+        out = adf_to_rich(doc)
+        assert out.plain == "▾ How to test\n  Open\n  \n    • a\n    • b"
+        assert any(out.plain[s.start:s.end] == "How to test" for s in _spans_with_style(out, "bold"))
+        assert any(out.plain[s.start:s.end] == "Open" for s in _spans_with_style(out, "bold"))
+
+    def test_expand_without_title(self) -> None:
+        doc = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "nestedExpand",
+                    "attrs": {"title": ""},
+                    "content": [{"type": "paragraph", "content": [{"type": "text", "text": "x"}]}],
+                }
+            ],
+        }
+        assert adf_to_rich(doc).plain == "▾ Details\n  x"
+
     def test_status_and_date_inline(self) -> None:
         doc = {
             "type": "doc",
