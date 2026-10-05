@@ -320,6 +320,61 @@ class TestAdf:
         }
         assert adf_to_rich(doc).plain == "▾ Details\n  x"
 
+    def test_media_single_renders_image_placeholder(self) -> None:
+        doc = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "mediaSingle",
+                    "attrs": {"layout": "center"},
+                    "content": [
+                        {
+                            "type": "media",
+                            "attrs": {
+                                "type": "file",
+                                "id": "5c74ead0",
+                                "collection": "",
+                                "alt": "image-20260813-085514.png",
+                                "width": 930,
+                                "height": 589,
+                            },
+                        }
+                    ],
+                }
+            ],
+        }
+        assert adf_to_rich(doc).plain == "[image: image-20260813-085514.png, 930×589]"
+
+    def test_media_fallbacks(self) -> None:
+        doc = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "mediaSingle",
+                    "content": [
+                        {"type": "media", "attrs": {"type": "external", "url": "https://x/y.png"}}
+                    ],
+                },
+                {
+                    "type": "mediaGroup",
+                    "content": [
+                        {"type": "media", "attrs": {"type": "file", "id": "a", "collection": ""}},
+                        {"type": "media", "attrs": {"type": "file", "id": "b", "alt": "spec.pdf"}},
+                    ],
+                },
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {"type": "text", "text": "see "},
+                        {"type": "mediaInline", "attrs": {"type": "file", "id": "c", "collection": ""}},
+                    ],
+                },
+            ],
+        }
+        assert adf_to_rich(doc).plain == (
+            "[image: https://x/y.png]\n\n[file]\n[file: spec.pdf]\n\nsee [file]"
+        )
+
     def test_status_and_date_inline(self) -> None:
         doc = {
             "type": "doc",

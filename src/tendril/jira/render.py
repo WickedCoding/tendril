@@ -5,8 +5,8 @@ API and enhanced_jql) and legacy wiki markup (plain string, from the v2 API
 that atlassian-python-api's `.issue()` hits). Both are handled here.
 
 Deliberately limited: paragraphs, headings, bullet/ordered/task lists, blockquotes,
-panels, expands, inline code + code blocks, horizontal rules, status lozenges, dates, and
-inline marks (bold, italic, code, strike, underline, link). Tables are skipped —
+panels, expands, inline code + code blocks, horizontal rules, status lozenges, dates,
+image/file placeholders, and inline marks (bold, italic, code, strike, underline, link). Tables are skipped —
 they don't fit a narrow terminal column well and were called out as out-of-scope.
 """
 
@@ -91,6 +91,12 @@ def adf_to_rich(node: dict) -> Text:
     if node_type == "table":
         return Text("[table skipped]", style="dim")
 
+    if node_type == "mediaSingle":
+        return _adf_media(node.get("content") or [], kind="image")
+
+    if node_type == "mediaGroup":
+        return _adf_media(node.get("content") or [], kind="file")
+
     # Unknown block — try to recover its inline children so we don't lose content.
     return _adf_inline(node.get("content") or [])
 
@@ -133,6 +139,28 @@ def _adf_expand(node: dict) -> Text:
     if not body.plain:
         return header
     return Text("\n").join([header, _prefix_styled(body, "  ", "  ")])
+
+
+def _adf_media(children: list[Any], *, kind: str) -> Text:
+    """One placeholder line per media child. The image itself never reaches the cache."""
+    labels = [
+        Text(_media_label(c.get("attrs") or {}, kind), style="dim")
+        for c in children
+        if isinstance(c, dict) and c.get("type") == "media"
+    ]
+    return Text("\n").join(labels)
+
+
+def _media_label(attrs: dict, kind: str) -> str:
+    """`[image: name.png, 930×589]` from what the node carries.
+
+    `alt` holds the uploaded filename; external media have no alt, only a url.
+    """
+    name = attrs.get("alt") or (attrs.get("url") if attrs.get("type") == "external" else None)
+    width, height = attrs.get("width"), attrs.get("height")
+    size = f"{width}×{height}" if width and height else None
+    details = ", ".join(p for p in (name, size) if p)
+    return f"[{kind}: {details}]" if details else f"[{kind}]"
 
 
 def _prefix_styled(body: Text, first: str, rest: str, *, style: str = "") -> Text:
@@ -245,6 +273,8 @@ def _adf_inline(nodes: list[Any]) -> Text:
             out.append(f"[{attrs.get('text') or '?'}]", style=f"bold {colour}".strip())
         elif t == "date":
             out.append(_format_date((n.get("attrs") or {}).get("timestamp")))
+        elif t == "mediaInline":
+            out.append(_media_label(n.get("attrs") or {}, "file"), style="dim")
         elif t == "inlineCard":
             attrs = n.get("attrs") or {}
             url = attrs.get("url") or ""

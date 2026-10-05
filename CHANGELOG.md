@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - ADF task lists in descriptions render one item per line as `☑` (done) or `☐` (to do), with nested task lists indented. They used to collapse into a single line with the state dropped.
 - Info, note, warning, error and success panels in descriptions render as a coloured `│` bar with the panel's icon, keeping their content and styling. They used to show as `[panel skipped]`, so their content was lost in the TUI and in `tendril show` (including `--json`).
 - Expand sections in descriptions render as `▾ Title` with the body indented underneath. The title used to vanish and the body's paragraphs and list items ran together into one line.
+- Images and attached files in descriptions render as a placeholder with the filename and size, e.g. `[image: image-20260813-085514.png, 930×589]` or `[file: spec.pdf]`. They used to vanish without a trace. Open the issue in JIRA to see the image itself.
 - Status lozenges render as `[TEXT]` and date nodes as `YYYY-MM-DD`. Both used to vanish from the middle of a sentence.
 
 ## [1.5.0] - 2026-09-28
