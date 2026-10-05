@@ -1,4 +1,15 @@
 {
+  "options": [
+    {
+      "name": "version",
+      "kind": "option",
+      "flags": ["--version"],
+      "type": "bool",
+      "description": "Show the installed tendril version.",
+      "optional": true,
+      "default": false
+    }
+  ],
   "commands": [
     {
       "name": "whoami",

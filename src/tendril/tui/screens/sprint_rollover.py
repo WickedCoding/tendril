@@ -45,7 +45,7 @@ class SprintRolloverScreen(Screen):
         Binding("e", "edit_reduction", "Edit SP"),
         Binding("c", "open_preview", "Confirm…"),
         Binding("R", "resume", "Resume"),
-        Binding("r", "refresh", "Reload"),
+        Binding("s", "sync", "Sync incremental"),
         # Priority so the screen intercepts before DataTable's default page nav.
         # On the source panel we forward to the table's own paging; on the
         # target panel we swap the cursor row up/down within `_target_order`.
@@ -497,13 +497,10 @@ class SprintRolloverScreen(Screen):
 
         self.app.push_screen(modal, after)
 
-    def action_refresh(self) -> None:
-        # Explicit user refresh: reset preselection so the config's rollover
-        # statuses re-apply after a JIRA sync brought new issues. Also drops
-        # any manual target-panel reorderings — a re-seed follows in reload().
-        self._selected.clear()
-        self._target_order = []
-        self.reload()
+    def action_sync(self) -> None:
+        # The app reloads the top screen when the sync lands; reload() keeps
+        # the user's selection and target ordering intact.
+        self.app.run_incremental_sync()  # type: ignore[attr-defined]
 
     def action_open_preview(self) -> None:
         """Confirmation gate: show a preview modal, then run the rollover on confirm."""

@@ -42,7 +42,7 @@ Skills is a JIRA multi-select. Both flat `["Backend"]` and option-object `[{"val
    - `a` — reselect all rollover-status issues
    - `n` — clear selection
    - `e` — set a per-issue SP reduction (local-only; never writes to JIRA). The projected carry-over SP drops by the reduction; the moved issue itself arrives in JIRA with SP unchanged.
-   - `r` — reload from cache
+   - `s` — run an incremental sync from JIRA (keeps your selection)
 5. Press `c` for the preview modal. It shows the full projected roster (carry-overs + existing target issues) and the projected totals. `enter` / `y` confirms; `esc` / `q` cancels.
 6. On confirm, the rollover runs four ordered steps against JIRA:
    1. Move selected issues into the target sprint
@@ -76,6 +76,6 @@ Press `Shift+R` to resume from the failed step. No rollback is attempted — JIR
 | `n`       | clear selection                                            |
 | `e`       | set / clear the SP reduction on the cursor row             |
 | `c`       | open the preview modal                                     |
-| `r`       | reload from cache                                          |
+| `s`       | run incremental sync (keeps selection)                     |
 | `Shift+R` | resume a partial rollover                                  |
 | `esc`/`q` | back to the previous screen                                |

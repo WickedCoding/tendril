@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from importlib.metadata import version as _pkg_version
 from typing import Callable
 
 import typer
@@ -41,8 +42,23 @@ console = Console()
 err_console = Console(stderr=True)
 
 
+def _version_callback(value: bool) -> None:
+    if value:
+        console.print(f"tendril {_pkg_version('tendril-jira')}")
+        raise typer.Exit()
+
+
 @app.callback(invoke_without_command=True)
-def _root(ctx: typer.Context) -> None:
+def _root(
+    ctx: typer.Context,
+    version: bool = typer.Option(
+        False,
+        "--version",
+        callback=_version_callback,
+        is_eager=True,
+        help="Show the installed tendril version.",
+    ),
+) -> None:
     """Launch the TUI when no subcommand is given."""
     if ctx.invoked_subcommand is not None:
         return

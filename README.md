@@ -107,7 +107,7 @@ Four screens plus a global search.
 | n       | clear selection                                    |
 | e       | set / clear SP reduction on the cursor row         |
 | c       | open the preview modal                             |
-| r       | reload from cache                                  |
+| s       | run incremental sync                               |
 | shift+r | resume a partial rollover                          |
 | esc     | back to the previous screen                        |
 

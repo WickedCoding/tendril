@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `tendril --version` prints the installed version.
+
+### Changed
+- Sprint rollover screen: `s` runs an incremental sync from JIRA and replaces `r` (reload from cache). Your selection and target ordering survive the sync.
+
 ## [1.5.0] - 2026-09-28
 
 ### Added
