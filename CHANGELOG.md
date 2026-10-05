@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Sprint rollover screen: `s` runs an incremental sync from JIRA and replaces `r` (reload from cache). Your selection and target ordering survive the sync.
 
 ### Fixed
+- Refreshing an issue (`r` in the TUI, `tendril sync issue KEY`) and the refetch after every write (comment, link, flags, rollover) used JIRA's v2 API, which returns descriptions and comments as wiki markup. The issue then lost its formatting: tables and images showed as raw markup and every numbered item as `1.`. Single-issue fetches now use API v3 and get the same ADF as the project sync. Issues already affected recover on their next refresh, or all at once with `tendril project sync KEY`.
 - ADF task lists in descriptions render one item per line as `☑` (done) or `☐` (to do), with nested task lists indented. They used to collapse into a single line with the state dropped.
 - Info, note, warning, error and success panels in descriptions render as a coloured `│` bar with the panel's icon, keeping their content and styling. They used to show as `[panel skipped]`, so their content was lost in the TUI and in `tendril show` (including `--json`).
 - Expand sections in descriptions render as `▾ Title` with the body indented underneath. The title used to vanish and the body's paragraphs and list items ran together into one line.

@@ -1,8 +1,9 @@
 """Render JIRA issue descriptions into styled Rich Text.
 
 JIRA gives us two shapes for the same field: ADF (structured JSON, from the v3
-API and enhanced_jql) and legacy wiki markup (plain string, from the v2 API
-that atlassian-python-api's `.issue()` hits). Both are handled here.
+API) and legacy wiki markup (plain string, from the v2 API). Every fetch uses v3
+now, but rows cached by older versions may still hold wiki markup, so both are
+handled here.
 
 Deliberately limited: paragraphs, headings, bullet/ordered/task lists, blockquotes,
 panels, expands, inline code + code blocks, horizontal rules, status lozenges, dates,

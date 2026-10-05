@@ -24,6 +24,7 @@ from tendril.db.models import (
     RolloverLog,
     Sprint,
 )
+from conftest import issue_key_from_path
 from tendril.operations import ops
 from tendril.sync.rollover import (
     carryover_totals,
@@ -217,8 +218,8 @@ class RolloverFakeJira:
         self._raise_on = sprint_updates_that_raise or {}
         self._raise_on_rank = raise_on_rank
 
-    def issue(self, key: str, fields: str | None = None, expand: str | None = None) -> dict:
-        return self._issues[key]
+    def get(self, path: str, params: dict | None = None) -> dict:
+        return self._issues[issue_key_from_path(path)]
 
     def enhanced_jql(self, *a, **kw):  # pragma: no cover — not used in these tests
         raise AssertionError("execute_rollover should not paginate")

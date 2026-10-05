@@ -8,7 +8,7 @@ JQL_CHUNK = 50
 
 
 class JiraLike(Protocol):
-    def issue(self, key: str, fields: str | None = None, expand: str | None = None) -> dict[str, Any]: ...
+    def get(self, path: str, params: dict[str, Any] | None = None) -> Any: ...
     def enhanced_jql(
         self,
         jql: str,
@@ -18,6 +18,16 @@ class JiraLike(Protocol):
         expand: str | None = None,
     ) -> dict[str, Any]: ...
     def get_issue_link_types(self) -> dict[str, Any]: ...
+
+
+def issue_path(key: str) -> str:
+    """REST path for one issue on API v3.
+
+    Pinned to v3 on purpose: `atlassian.Jira.issue()` follows the client's default
+    API version (2), which returns description and comment bodies as wiki markup
+    instead of the ADF that `enhanced_jql` (always v3) gives the project sync.
+    """
+    return f"rest/api/3/issue/{key}"
 
 
 def fetch_link_types(client: JiraLike) -> list[LinkTypeDTO]:
@@ -52,7 +62,7 @@ def fetch_issue(
     skills_field_id: str | None = None,
 ) -> IssueDTO:
     """Fetch a single issue with links and comments, normalized to an IssueDTO."""
-    payload = client.issue(key, fields=_compose(ISSUE_FIELDS, extra_fields))
+    payload = client.get(issue_path(key), params={"fields": _compose(ISSUE_FIELDS, extra_fields)})
     return normalize_issue(
         payload,
         sprint_field_id=sprint_field_id,

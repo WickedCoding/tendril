@@ -74,6 +74,21 @@ def test_sync_issue_end_to_end(session: Session, load_fixture, fake_jira_class) 
     assert session.get(Issue, "PROJ-1") is not None
 
 
+def test_sync_issue_reads_api_v3(session: Session, load_fixture, fake_jira_class) -> None:
+    """v2 returns descriptions and comments as wiki markup; refresh must not downgrade ADF."""
+    payload = load_fixture("issue_sample.json")
+    payload["fields"]["description"] = {
+        "type": "doc",
+        "content": [{"type": "paragraph", "content": [{"type": "text", "text": "kept"}]}],
+    }
+    client = fake_jira_class({"PROJ-1": payload})
+    sync_issue(client, session, "PROJ-1")
+    assert client.get_calls == ["rest/api/3/issue/PROJ-1"]
+    issue = session.get(Issue, "PROJ-1")
+    assert issue is not None
+    assert isinstance(issue.raw_json["fields"]["description"], dict)
+
+
 # ---------- sprint parsing + persistence ----------
 
 

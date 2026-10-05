@@ -57,3 +57,5 @@ def test_sync_issue_populates_cache(tmp_path, live_client, live_issue_key) -> No
     # JIRA may have moved the issue; both original and current key are acceptable.
     assert row.key
     assert row.summary is not None
+    # v3 returns ADF (dict); a str here means the fetch fell back to v2 wiki markup.
+    assert not isinstance(row.raw_json["fields"].get("description"), str)

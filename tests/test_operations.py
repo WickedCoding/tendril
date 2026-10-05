@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from tendril.db.models import Comment, Issue, IssueLink
 from tendril.jira.dto import normalize_issue
+from conftest import issue_key_from_path
 from tendril.operations import ops
 from tendril.sync.pipeline import upsert_issue
 
@@ -26,8 +27,8 @@ class FakeOpsJira:
         self._next_link_id = 60000
 
     # ---- read side ----
-    def issue(self, key: str, fields: str | None = None, expand: str | None = None) -> dict:
-        return self._issues[key]
+    def get(self, path: str, params: dict | None = None) -> dict:
+        return self._issues[issue_key_from_path(path)]
 
     def enhanced_jql(self, *a, **kw):
         raise AssertionError("write-side tests should not paginate")

@@ -33,6 +33,13 @@ def session(tmp_path: Path) -> Session:
         yield s
 
 
+def issue_key_from_path(path: str) -> str:
+    """Key from a `rest/api/3/issue/KEY` path. Anything else is a bug in the code under test."""
+    prefix = "rest/api/3/issue/"
+    assert path.startswith(prefix), f"expected a v3 issue GET, got {path!r}"
+    return path[len(prefix):]
+
+
 class FakeJira:
     """Minimal stand-in for `atlassian.Jira`: returns fixture payloads keyed by issue key.
 
@@ -55,6 +62,7 @@ class FakeJira:
         self.sprint_moves: list[tuple[int, list[str]]] = []
         self.sprint_updates: list[tuple[int, dict]] = []
         self.rank_calls: list[dict] = []
+        self.get_calls: list[str] = []
 
     def get_issue_link_types(self) -> dict:
         return {"issueLinkTypes": list(self._link_types)}
@@ -71,7 +79,9 @@ class FakeJira:
         self.rank_calls.append(dict(data))
         return {}
 
-    def issue(self, key: str, fields: str | None = None, expand: str | None = None) -> dict:
+    def get(self, path: str, params: dict | None = None) -> dict:
+        self.get_calls.append(path)
+        key = issue_key_from_path(path)
         try:
             return self._issues[key]
         except KeyError as e:

@@ -291,7 +291,7 @@ def normalize_issue(
     story_points_field_id: str | None = None,
     skills_field_id: str | None = None,
 ) -> IssueDTO:
-    """Turn a raw `Jira.issue()` payload into a flat IssueDTO.
+    """Turn a raw v3 issue payload (single GET or `enhanced_jql` page) into a flat IssueDTO.
 
     The three `*_field_id` params are configured customfield ids
     (e.g. `customfield_10020`); when None, the corresponding IssueDTO field
