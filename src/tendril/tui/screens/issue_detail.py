@@ -22,6 +22,7 @@ from sqlalchemy import select
 from tendril.db.models import Comment, Issue, IssueLink, LinkType
 from tendril.tags import ops as tag_ops
 from tendril.tags.matcher import find_surfaces
+from tendril.db.links import link_phrase, link_phrases
 from tendril.db.users import format_user, resolve_display_names
 from tendril.jira.render import render_description
 from tendril.operations import ops as write_ops
@@ -186,10 +187,7 @@ class IssueDetailScreen(Screen):
                 ):
                     summaries[key] = (summary, status, assignee)
 
-            link_type_phrases = {
-                lt.name: (lt.outward, lt.inward)
-                for lt in session.scalars(select(LinkType)).all()
-            }
+            link_type_phrases = link_phrases(session)
 
             table = self.query_one("#links-table", DataTable)
             table.clear()
@@ -518,19 +516,8 @@ def _linked_item_cell(
     target_key: str,
     phrases: dict[str, tuple[str, str]],
 ) -> str:
-    """Render a link as `<phrase> TARGET-KEY`.
-
-    Uses the cached outward/inward phrase for the link type; falls back to the
-    raw API name plus a direction arrow if the type isn't cached (run
-    `tendril sync link-types` to fix).
-    """
-    if link_type in phrases:
-        outward, inward = phrases[link_type]
-        phrase = outward if direction == "outward" else inward
-    else:
-        arrow = "→" if direction == "outward" else "←"
-        phrase = f"{link_type} {arrow}"
-    return f"{phrase} {target_key}"
+    """Render a link as `<phrase> TARGET-KEY`."""
+    return f"{link_phrase(link_type, direction, phrases)} {target_key}"
 
 
 def _title_cell(target_key: str, summaries: dict[str, tuple[str | None, str | None, str | None]]) -> str:

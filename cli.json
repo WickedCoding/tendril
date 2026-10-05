@@ -18,7 +18,7 @@
     },
     {
       "name": "show",
-      "description": "Print an issue from the local cache.",
+      "description": "Print an issue from the local cache: fields, description, and linked issues.",
       "parameters": [
         {
           "name": "key",
@@ -26,6 +26,15 @@
           "type": "str",
           "description": "JIRA issue key.",
           "optional": false
+        },
+        {
+          "name": "json_out",
+          "kind": "option",
+          "flags": ["--json"],
+          "type": "bool",
+          "description": "Emit machine-readable JSON.",
+          "optional": true,
+          "default": false
         }
       ]
     },

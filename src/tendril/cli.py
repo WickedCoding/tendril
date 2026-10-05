@@ -7,16 +7,19 @@ import typer
 from rich.console import Console
 from rich.prompt import Prompt
 from rich.table import Table
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from tendril import config as cfg_mod
 from tendril.config import Config, ConfigError, FieldsConfig, JiraConfig, LinksConfig, SyncConfig
 from tendril.tags import ops as tag_ops
 from tendril.db.engine import build_engine, session_factory
+from tendril.db.links import link_phrase, link_phrases
 from tendril.db.models import Comment, Issue, IssueLink
 from tendril.db.schema import init_schema
 from tendril.db.users import format_user, resolve_display_names
 from tendril.jira import client as jira_client
+from tendril.jira.render import render_description
 from tendril.sync import commands as sync_ops
 from tendril.text import local_time, plural
 
@@ -362,8 +365,13 @@ def watchlist_list_cmd() -> None:
 
 
 @app.command()
-def show(key: str) -> None:
-    """Print an issue from the local cache."""
+def show(
+    key: str,
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+) -> None:
+    """Print an issue from the local cache: fields, description, and linked issues."""
+    import json as _json
+
     session, close = _open_session()
     try:
         issue = session.get(Issue, key)
@@ -371,13 +379,69 @@ def show(key: str) -> None:
             err_console.print(f"[yellow]{key} not in local cache. Run `tendril sync issue {key}` first.[/yellow]")
             raise typer.Exit(1)
 
+        names = resolve_display_names(session, (issue.assignee_account_id, issue.reporter_account_id))
+        description = render_description(issue.raw_json)
+        links = session.scalars(
+            select(IssueLink).where(IssueLink.source_key == key).order_by(IssueLink.id)
+        ).all()
+        children = session.scalars(
+            select(Issue).where(Issue.parent_key == key).order_by(Issue.key)
+        ).all()
+        targets = {
+            i.key: i
+            for i in session.scalars(
+                select(Issue).where(Issue.key.in_({link.target_key for link in links}))
+            ).all()
+        }
+        phrases = link_phrases(session)
+        comment_count = session.query(Comment).filter(Comment.issue_key == key).count()
+
+        def _user(account_id: str | None) -> str | None:
+            return names.get(account_id, account_id) if account_id else None
+
+        if json_out:
+            payload = {
+                "key": issue.key,
+                "project": issue.key.rsplit("-", 1)[0],
+                "summary": issue.summary,
+                "status": issue.status,
+                "issuetype": issue.issuetype,
+                "assignee": _user(issue.assignee_account_id),
+                "reporter": _user(issue.reporter_account_id),
+                "parent": issue.parent_key,
+                "created": issue.created.isoformat() if issue.created else None,
+                "updated": issue.updated.isoformat() if issue.updated else None,
+                "duedate": issue.duedate.isoformat() if issue.duedate else None,
+                "synced": issue.last_synced_at.isoformat(),
+                "description": description.plain if description is not None else None,
+                "links": [
+                    {
+                        "key": link.target_key,
+                        "type": link.link_type,
+                        "direction": link.direction,
+                        "phrase": link_phrase(link.link_type, link.direction, phrases),
+                        "summary": targets[link.target_key].summary if link.target_key in targets else None,
+                        "status": targets[link.target_key].status if link.target_key in targets else None,
+                        "cached": link.target_key in targets,
+                    }
+                    for link in links
+                ],
+                "children": [
+                    {"key": c.key, "summary": c.summary, "status": c.status}
+                    for c in children
+                ],
+                "comment_count": comment_count,
+            }
+            console.print_json(_json.dumps(payload))
+            return
+
         table = Table(show_header=False, box=None)
         table.add_row("[bold]key[/bold]", issue.key)
         table.add_row("[bold]summary[/bold]", issue.summary or "")
         table.add_row("[bold]status[/bold]", issue.status or "")
         table.add_row("[bold]type[/bold]", issue.issuetype or "")
-        table.add_row("[bold]assignee[/bold]", issue.assignee_account_id or "-")
-        table.add_row("[bold]reporter[/bold]", issue.reporter_account_id or "-")
+        table.add_row("[bold]assignee[/bold]", format_user(issue.assignee_account_id, names))
+        table.add_row("[bold]reporter[/bold]", format_user(issue.reporter_account_id, names))
         table.add_row("[bold]created[/bold]", local_time(issue.created, missing="-"))
         table.add_row("[bold]updated[/bold]", local_time(issue.updated, missing="-"))
         table.add_row("[bold]duedate[/bold]", str(issue.duedate) if issue.duedate else "-")
@@ -385,9 +449,25 @@ def show(key: str) -> None:
         table.add_row("[bold]synced[/bold]", local_time(issue.last_synced_at))
         console.print(table)
 
-        link_count = session.query(IssueLink).filter(IssueLink.source_key == key).count()
-        comment_count = session.query(Comment).filter(Comment.issue_key == key).count()
-        console.print(f"\n[dim]{plural(link_count, 'link')}, {plural(comment_count, 'comment')}[/dim]")
+        console.print("\n[bold]Description[/bold]")
+        console.print(description if description is not None else "[dim]no description[/dim]")
+
+        if links or children:
+            console.print("\n[bold]Links[/bold]")
+            links_table = Table(show_header=False, box=None)
+            for link in links:
+                target = targets.get(link.target_key)
+                links_table.add_row(
+                    link_phrase(link.link_type, link.direction, phrases),
+                    link.target_key,
+                    (target.summary or "—") if target else "[dim]not synced[/dim]",
+                    (target.status or "-") if target else "",
+                )
+            for child in children:
+                links_table.add_row("contains", child.key, child.summary or "—", child.status or "-")
+            console.print(links_table)
+
+        console.print(f"\n[dim]{plural(comment_count, 'comment')}[/dim]")
     finally:
         close()
 
