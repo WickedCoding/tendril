@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from urllib.parse import quote
+
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -37,6 +39,8 @@ from tendril.tui.sorting import SortColumn, sort_rows
 
 class IssueDetailScreen(Screen):
     BINDINGS = [
+        Binding("o", "open_in_browser", "Open in browser"),
+        Binding("O", "open_parent_in_browser", "Parent in browser"),
         Binding("r", "refresh_issue", "Refresh from JIRA"),
         Binding("c", "add_comment", "Comment"),
         Binding("l", "add_link", "Link"),
@@ -347,6 +351,25 @@ class IssueDetailScreen(Screen):
             return
         self.app.push_screen(IssueDetailScreen(self._parent_key))
 
+    def action_open_in_browser(self) -> None:
+        key = self.issue_key
+        table = self.query_one("#links-table", DataTable)
+        if table.has_focus and table.row_count:
+            row_key = table.coordinate_to_cell_key(table.cursor_coordinate).row_key
+            target = self._linked_issue_key(str(row_key.value))
+            if target is None:
+                return
+            key = target
+        self._open_issue_in_browser(key)
+
+    def action_open_parent_in_browser(self) -> None:
+        if self._parent_key:
+            self._open_issue_in_browser(self._parent_key)
+
+    def _open_issue_in_browser(self, key: str) -> None:
+        cfg = self.app.cfg  # type: ignore[attr-defined]
+        self.app.open_url(f"{cfg.jira.url.rstrip('/')}/browse/{quote(key, safe='')}")
+
     def action_edit_tags(self) -> None:
         with self.app.session_factory() as session:  # type: ignore[attr-defined]
             current = tag_ops.list_tags_for(session, self.issue_key)
@@ -409,22 +432,25 @@ class IssueDetailScreen(Screen):
         self.reload()
 
     def check_action(self, action: str, parameters: tuple) -> bool | None:
-        if action == "open_parent":
+        if action in {"open_parent", "open_parent_in_browser"}:
             return bool(self._parent_key)
         return True
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         raw = str(event.row_key.value) if event.row_key.value is not None else ""
-        target: str | None = None
+        target = self._linked_issue_key(raw)
+        if target:
+            self.app.push_screen(IssueDetailScreen(target))
+
+    def _linked_issue_key(self, raw: str) -> str | None:
         if raw.startswith("child:"):
-            target = raw.removeprefix("child:")
-        elif raw.startswith("link:"):
+            return raw.removeprefix("child:")
+        if raw.startswith("link:"):
             link_id = int(raw.removeprefix("link:"))
             with self.app.session_factory() as session:  # type: ignore[attr-defined]
                 link = session.get(IssueLink, link_id)
-                target = link.target_key if link else None
-        if target:
-            self.app.push_screen(IssueDetailScreen(target))
+                return link.target_key if link else None
+        return None
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         if event.option_list.id != "surfaces-list":
