@@ -78,8 +78,7 @@ Four screens plus a global search.
 
 | key | binding                                       |
 |-----|-----------------------------------------------|
-| o   | open this issue in the browser (or the highlighted row when the Links table has focus) |
-| shift+o | open this issue's parent in the browser (when present) |
+| o   | open this issue in the browser (or the highlighted row when the Links tab is active); use `p` then `o` to open the parent |
 | r   | refetch this issue from JIRA                  |
 | c   | add a comment (ctrl+s in the modal to submit) |
 | l   | link this issue to another key (chooser + ctrl+s to submit) |
