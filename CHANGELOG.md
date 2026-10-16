@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Issue detail: `o` opens the current issue in the default browser, or the highlighted linked/child issue when the Links tab is active. Use `p` then `o` to open the parent. URLs use the configured JIRA base URL, including any context path ([#3](https://github.com/WickedCoding/tendril/issues/3)).
 
+### Fixed
+- `watchlist add` reports the total persisted watchlist size, including previously stored entries and duplicate input keys ([#6](https://github.com/WickedCoding/tendril/issues/6)).
+
 ## [1.6.0] - 2026-10-05
 
 ### Added
