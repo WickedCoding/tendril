@@ -63,12 +63,12 @@ async def test_open_selected_link_in_browser(browser_app, target) -> None:
         await pilot.pause()
         table = app.screen.query_one("#links-table", DataTable)
         table.move_cursor(row=table.get_row_index(row_key))
-        table.focus()
         await pilot.press("o")
 
         assert opened == [f"https://jira.example.test/jira/browse/{target}"]
         assert app.screen.issue_key == "PROJ-1"
         # Enter retains its existing in-app navigation on the same row.
+        table.focus()
         await pilot.press("enter")
         assert app.screen.issue_key == target
 
@@ -86,31 +86,30 @@ async def test_open_selected_child_in_browser(browser_app) -> None:
         await pilot.pause()
         table = app.screen.query_one("#links-table", DataTable)
         table.move_cursor(row=table.get_row_index("child:PROJ-1"))
-        table.focus()
         await pilot.press("o")
 
         assert opened == ["https://jira.example.test/jira/browse/PROJ-1"]
         assert app.screen.issue_key == "PROJ-2"
 
 
-async def test_open_parent_in_browser_without_cached_parent(browser_app) -> None:
+async def test_open_parent_in_browser_after_navigating_to_parent(browser_app) -> None:
     app, opened = browser_app
     async with app.run_test() as pilot:
         await app.push_screen(IssueDetailScreen("PROJ-1"))
-        await pilot.press("O")
+        await pilot.press("p", "o")
 
         assert opened == ["https://jira.example.test/jira/browse/PROJ-100"]
-        assert app.screen.issue_key == "PROJ-1"
+        assert app.screen.issue_key == "PROJ-100"
 
 
-async def test_open_parent_is_unavailable_without_parent(browser_app) -> None:
+async def test_parent_navigation_is_unavailable_without_parent(browser_app) -> None:
     app, opened = browser_app
     async with app.run_test() as pilot:
         await app.push_screen(IssueDetailScreen("PROJ-2"))
-        await pilot.press("O")
+        await pilot.press("p")
 
         assert opened == []
-        assert app.screen.check_action("open_parent_in_browser", ()) is False
+        assert app.screen.check_action("open_parent", ()) is False
 
 
 async def test_open_current_issue_when_links_table_is_empty(browser_app) -> None:
@@ -121,7 +120,6 @@ async def test_open_current_issue_when_links_table_is_empty(browser_app) -> None
         await pilot.pause()
         table = app.screen.query_one("#links-table", DataTable)
         assert table.row_count == 0
-        table.focus()
         await pilot.press("o")
 
         assert opened == ["https://jira.example.test/jira/browse/PROJ-2"]
