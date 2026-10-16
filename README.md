@@ -69,6 +69,7 @@ Four screens plus a global search.
 | d   | drop watchlist marker on highlighted row     |
 | w   | toggle watchlist-only filter                 |
 | o   | toggle open-only filter (hides done statuses)|
+| p   | cycle project filter (all → cached project prefixes → all) |
 | s   | run incremental sync                         |
 | r   | reload from cache                            |
 | ↵   | open issue detail                            |
