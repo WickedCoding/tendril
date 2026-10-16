@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Overview: `p` cycles through cached project prefixes and back to all projects. The status line shows the selected project, and it composes with watchlist/open/mine filters.
+
 ## [1.6.0] - 2026-10-05
 
 ### Added
