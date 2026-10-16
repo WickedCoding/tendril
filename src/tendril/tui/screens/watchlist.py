@@ -27,6 +27,7 @@ class WatchlistScreen(Screen):
         Binding("w", "toggle_watchlist_filter", "Watchlist only"),
         Binding("o", "toggle_open_filter", "Open only"),
         Binding("m", "toggle_mine_filter", "Mine"),
+        Binding("p", "cycle_project_filter", "Project"),
         Binding("S", "app.open_sprint_watchlist", "Sprint"),
         Binding("s", "sync", "Sync incremental"),
         Binding("r", "refresh", "Reload"),
@@ -47,6 +48,8 @@ class WatchlistScreen(Screen):
         self._watchlist_only = False
         self._open_only = False
         self._mine_only = False
+        self._project_prefix: str | None = None
+        self._project_prefixes: list[str] = []
         self._sort_key: str | None = None
         self._sort_desc: bool = False
 
@@ -82,11 +85,17 @@ class WatchlistScreen(Screen):
         rows: list[dict] = []
         with self.app.session_factory() as session:  # type: ignore[attr-defined]
             pairs = list_all_issues(session)
+            # Use the whole cache so other filters cannot hide a project choice.
+            self._project_prefixes = sorted({issue.key.split("-", 1)[0] for issue, _ in pairs})
+            if self._project_prefix not in self._project_prefixes:
+                self._project_prefix = None
             names = resolve_display_names(
                 session, (issue.assignee_account_id for issue, _ in pairs)
             )
             for issue, is_watchlisted in pairs:
                 total += 1
+                if self._project_prefix and issue.key.split("-", 1)[0] != self._project_prefix:
+                    continue
                 if self._watchlist_only and not is_watchlisted:
                     continue
                 if self._open_only and (issue.status or "") in done:
@@ -145,6 +154,8 @@ class WatchlistScreen(Screen):
 
     def _status_text(self, shown: int, total: int) -> str:
         filters = []
+        if self._project_prefix:
+            filters.append(f"project={self._project_prefix}")
         if self._watchlist_only:
             filters.append("watchlist")
         if self._open_only:
@@ -220,6 +231,11 @@ class WatchlistScreen(Screen):
 
     def action_toggle_mine_filter(self) -> None:
         self._mine_only = not self._mine_only
+        self.reload()
+
+    def action_cycle_project_filter(self) -> None:
+        projects = [None, *self._project_prefixes]
+        self._project_prefix = projects[(projects.index(self._project_prefix) + 1) % len(projects)]
         self.reload()
 
     def action_sync(self) -> None:
