@@ -40,7 +40,6 @@ from tendril.tui.sorting import SortColumn, sort_rows
 class IssueDetailScreen(Screen):
     BINDINGS = [
         Binding("o", "open_in_browser", "Open in browser"),
-        Binding("O", "open_parent_in_browser", "Parent in browser"),
         Binding("r", "refresh_issue", "Refresh from JIRA"),
         Binding("c", "add_comment", "Comment"),
         Binding("l", "add_link", "Link"),
@@ -353,18 +352,15 @@ class IssueDetailScreen(Screen):
 
     def action_open_in_browser(self) -> None:
         key = self.issue_key
+        tabs = self.query_one(TabbedContent)
         table = self.query_one("#links-table", DataTable)
-        if table.has_focus and table.row_count:
+        if tabs.active == "tab-links" and table.row_count:
             row_key = table.coordinate_to_cell_key(table.cursor_coordinate).row_key
             target = self._linked_issue_key(str(row_key.value))
             if target is None:
                 return
             key = target
         self._open_issue_in_browser(key)
-
-    def action_open_parent_in_browser(self) -> None:
-        if self._parent_key:
-            self._open_issue_in_browser(self._parent_key)
 
     def _open_issue_in_browser(self, key: str) -> None:
         cfg = self.app.cfg  # type: ignore[attr-defined]
@@ -432,7 +428,7 @@ class IssueDetailScreen(Screen):
         self.reload()
 
     def check_action(self, action: str, parameters: tuple) -> bool | None:
-        if action in {"open_parent", "open_parent_in_browser"}:
+        if action == "open_parent":
             return bool(self._parent_key)
         return True
 
