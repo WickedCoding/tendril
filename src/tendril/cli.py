@@ -15,7 +15,7 @@ from tendril.config import Config, ConfigError, FieldsConfig, JiraConfig, LinksC
 from tendril.tags import ops as tag_ops
 from tendril.db.engine import build_engine, session_factory
 from tendril.db.links import link_phrase, link_phrases
-from tendril.db.models import Comment, Issue, IssueLink
+from tendril.db.models import Comment, Issue, IssueLink, WatchlistEntry
 from tendril.db.schema import init_schema
 from tendril.db.users import format_user, resolve_display_names
 from tendril.jira import client as jira_client
@@ -310,8 +310,9 @@ def watchlist_add_cmd(
     """
     session, close = _open_session()
     try:
-        entries, uncached = sync_ops.add_to_watchlist(session, keys, note=note, tags=tags)
-        console.print(f"[green]Watchlist size:[/green] {plural(len(entries), 'entry', 'entries')} after add.")
+        _, uncached = sync_ops.add_to_watchlist(session, keys, note=note, tags=tags)
+        total = session.query(WatchlistEntry).count()
+        console.print(f"[green]Watchlist size:[/green] {plural(total, 'entry', 'entries')} after add.")
         if uncached:
             console.print(
                 f"[yellow]Not yet in cache:[/yellow] {', '.join(uncached)}\n"
