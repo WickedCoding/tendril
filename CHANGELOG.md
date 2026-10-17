@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Overview: `p` cycles through cached project prefixes and back to all projects. The status line shows the selected project, and it composes with watchlist/open/mine filters.
+- Overview: `p` cycles through cached project prefixes and back to all projects, or opens a searchable picker above `[overview].project_picker_threshold` (default 5; 0 always uses the picker for a non-empty cache). The picker highlights the current selection, offers All projects, and cancels with Esc. The status line shows the selected project, and it composes with watchlist/open/mine filters.
 - Issue detail: `o` opens the current issue in the default browser, or the highlighted linked/child issue when the Links tab is active. Use `p` then `o` to open the parent. URLs use the configured JIRA base URL, including any context path ([#3](https://github.com/WickedCoding/tendril/issues/3)).
 
 ### Fixed
