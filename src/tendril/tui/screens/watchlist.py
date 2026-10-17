@@ -234,9 +234,22 @@ class WatchlistScreen(Screen):
         self.reload()
 
     def action_cycle_project_filter(self) -> None:
+        if len(self._project_prefixes) > self.app.cfg.overview.project_picker_threshold:
+            from tendril.tui.screens.project_filter_modal import ProjectFilterModal
+
+            self.app.push_screen(
+                ProjectFilterModal(self._project_prefixes, self._project_prefix),
+                self._on_project_selected,
+            )
+            return
         projects = [None, *self._project_prefixes]
         self._project_prefix = projects[(projects.index(self._project_prefix) + 1) % len(projects)]
         self.reload()
+
+    def _on_project_selected(self, project: str | None) -> None:
+        if project is not None:  # None cancels; an empty string means all projects.
+            self._project_prefix = project or None
+            self.reload()
 
     def action_sync(self) -> None:
         self.app.run_incremental_sync()  # type: ignore[attr-defined]
