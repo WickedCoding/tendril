@@ -892,3 +892,242 @@ async def test_rollover_screen_reports_missing_target(
         assert app.screen._resolution.predicted_name == "Sprint 100"
         assert app.screen._resolution.target is None
         assert "Sprint 100" in (app.screen._resolution.reason or "")
+
+
+@pytest.fixture
+def project_filter_app(isolated_xdg):
+    from datetime import datetime, timezone
+    from tendril.db.models import Issue
+
+    engine = build_engine()
+    init_schema(engine)
+    with session_factory(engine)() as session:
+        for key, status, assignee, watched in [
+            ("PROJ-1", "Open", "me", True),
+            ("PROJ-2", "Closed", "me", True),
+            ("PROJ-3", "Open", "other", True),
+            ("PROJ-4", "Open", "me", False),
+            ("PROJX-1", "Open", "me", True),
+            ("ABC-1", "Closed", "other", False),
+        ]:
+            session.add(Issue(
+                key=key, summary=key, status=status, assignee_account_id=assignee,
+                raw_json={}, last_synced_at=datetime.now(timezone.utc),
+            ))
+            if watched:
+                add_to_watchlist(session, [key])
+        add_to_watchlist(session, ["UNCACHED-1"])
+        session.commit()
+    engine.dispose()
+    cfg = Config(jira=JiraConfig(url="https://x", email="me@x", account_id="me"))
+    cfg.overview.done_statuses = ["Closed"]
+    return TendrilApp(cfg)
+
+
+def _overview_keys(app) -> set[str]:
+    from textual.widgets import DataTable
+    return {str(k.value) for k in app.screen.query_one(DataTable).rows}
+
+
+def _overview_status(app) -> str:
+    from textual.widgets import Static
+    return str(app.screen.query_one("#status-line", Static).render())
+
+
+async def test_project_filter_cycles_sorted_cached_prefixes_and_all(project_filter_app):
+    app = project_filter_app
+    async with app.run_test() as pilot:
+        assert len(_overview_keys(app)) == 6
+        for expected, prefix in [
+            ({"ABC-1"}, "ABC"),
+            ({"PROJ-1", "PROJ-2", "PROJ-3", "PROJ-4"}, "PROJ"),
+            ({"PROJX-1"}, "PROJX"),
+        ]:
+            await pilot.press("p")
+            assert _overview_keys(app) == expected
+            assert f"project={prefix}" in _overview_status(app)
+        await pilot.press("p")
+        assert len(_overview_keys(app)) == 6
+        assert "project=" not in _overview_status(app)
+
+
+@pytest.mark.parametrize("watchlist", [False, True])
+@pytest.mark.parametrize("open_only", [False, True])
+@pytest.mark.parametrize("mine", [False, True])
+async def test_project_filter_composes_with_existing_filters(
+    project_filter_app, watchlist, open_only, mine,
+):
+    app = project_filter_app
+    async with app.run_test() as pilot:
+        # ABC remains selectable even if other filters hide every ABC issue.
+        for enabled, key in [(watchlist, "w"), (open_only, "o"), (mine, "m")]:
+            if enabled:
+                await pilot.press(key)
+        await pilot.press("p")
+        assert _overview_keys(app) == (set() if any([watchlist, open_only, mine]) else {"ABC-1"})
+        await pilot.press("p")
+        expected = {"PROJ-1", "PROJ-2", "PROJ-3", "PROJ-4"}
+        if watchlist:
+            expected.discard("PROJ-4")
+        if open_only:
+            expected.discard("PROJ-2")
+        if mine:
+            expected.discard("PROJ-3")
+        assert _overview_keys(app) == expected
+        status = _overview_status(app)
+        assert f"showing {len(expected)} of 6 cached issues" in status
+        assert "project=PROJ" in status
+        for enabled, name in [(watchlist, "watchlist"), (open_only, "open"), (mine, "mine")]:
+            if enabled:
+                assert name in status
+
+
+@pytest.mark.parametrize("threshold", [0, 5])
+async def test_project_filter_empty_cache_is_a_noop(isolated_xdg, threshold):
+    app = TendrilApp(Config(jira=JiraConfig(url="https://x", email="me@x")))
+    app.cfg.overview.project_picker_threshold = threshold
+    async with app.run_test() as pilot:
+        await pilot.press("p", "p")
+        assert _overview_keys(app) == set()
+        assert "project=" not in _overview_status(app)
+
+
+async def test_project_filter_refreshes_projects_and_clears_removed_selection(project_filter_app):
+    from datetime import datetime, timezone
+    from tendril.db.models import Issue
+
+    app = project_filter_app
+    async with app.run_test() as pilot:
+        await pilot.press("p")
+        assert _overview_keys(app) == {"ABC-1"}
+        with app.session_factory() as session:
+            session.delete(session.get(Issue, "ABC-1"))
+            session.add(Issue(
+                key="NEW-1", raw_json={}, last_synced_at=datetime.now(timezone.utc),
+            ))
+            session.commit()
+        await pilot.press("r")
+        assert len(_overview_keys(app)) == 6
+        assert "project=" not in _overview_status(app)
+        await pilot.press("p")
+        assert _overview_keys(app) == {"NEW-1"}
+
+
+async def test_project_filter_survives_sort_reload_and_detail_navigation(project_filter_app):
+    from textual.widgets import DataTable
+
+    app = project_filter_app
+    async with app.run_test() as pilot:
+        await pilot.press("p", "p")
+        app.screen.apply_sort("key", descending=True)
+        table = app.screen.query_one(DataTable)
+        assert [str(k.value) for k in table.rows] == ["PROJ-4", "PROJ-3", "PROJ-2", "PROJ-1"]
+        await pilot.press("r", "enter")
+        assert app.screen.issue_key == "PROJ-4"
+        await pilot.press("escape")
+        assert _overview_keys(app) == {"PROJ-1", "PROJ-2", "PROJ-3", "PROJ-4"}
+        assert "project=PROJ" in _overview_status(app)
+
+
+@pytest.mark.parametrize("threshold, picker", [(3, False), (2, True), (0, True)])
+async def test_project_picker_threshold_boundary(project_filter_app, threshold, picker):
+    from tendril.tui.screens.project_filter_modal import ProjectFilterModal
+
+    app = project_filter_app
+    app.cfg.overview.project_picker_threshold = threshold
+    async with app.run_test() as pilot:
+        await pilot.press("p")
+        assert isinstance(app.screen, ProjectFilterModal) is picker
+        if picker:
+            await pilot.press("escape")
+            assert len(_overview_keys(app)) == 6
+        else:
+            assert _overview_keys(app) == {"ABC-1"}
+
+
+async def test_project_picker_search_select_current_cancel_and_all(project_filter_app):
+    from textual.widgets import Input, OptionList
+    from tendril.tui.screens.project_filter_modal import ProjectFilterModal
+
+    app = project_filter_app
+    async with app.run_test() as pilot:
+        await pilot.press("p", "p")  # Pick PROJ through the small-list cycle.
+        app.cfg.overview.project_picker_threshold = 2
+        await pilot.press("p")
+        assert isinstance(app.screen, ProjectFilterModal)
+        options = app.screen.query_one(OptionList)
+        assert options.get_option_at_index(options.highlighted).id == "project:PROJ"
+        assert "✓ PROJ" in str(options.get_option_at_index(options.highlighted).prompt)
+        search = app.screen.query_one(Input)
+        search.value = "pRoJx"
+        await pilot.pause()
+        assert options.option_count == 1
+        await pilot.press("enter")
+        assert _overview_keys(app) == {"PROJX-1"}
+        await pilot.press("p")
+        app.screen.query_one(Input).value = "ABC"
+        await pilot.pause()
+        await pilot.press("escape")
+        assert _overview_keys(app) == {"PROJX-1"}
+        await pilot.press("p")
+        app.screen.query_one(Input).value = "All projects"
+        await pilot.pause()
+        await pilot.press("enter")
+        assert len(_overview_keys(app)) == 6
+        assert "project=" not in _overview_status(app)
+
+
+async def test_project_picker_no_match_then_keyboard_selection(project_filter_app):
+    from textual.widgets import Input, OptionList
+    from tendril.tui.screens.project_filter_modal import ProjectFilterModal
+
+    app = project_filter_app
+    app.cfg.overview.project_picker_threshold = 0
+    async with app.run_test() as pilot:
+        await pilot.press("w", "o", "m", "p")
+        search = app.screen.query_one(Input)
+        search.value = "DOES-NOT-EXIST"
+        await pilot.pause()
+        assert app.screen.query_one(OptionList).option_count == 0
+        await pilot.press("enter")
+        assert isinstance(app.screen, ProjectFilterModal)
+        search.value = "abc"
+        await pilot.pause()
+        await pilot.press("down", "enter")
+        # Even projects hidden by the other filters remain selectable.
+        assert _overview_keys(app) == set()
+        assert "project=ABC" in _overview_status(app)
+
+
+@pytest.mark.parametrize("extra_count, picker", [(2, False), (3, True)])
+async def test_project_picker_default_switches_above_five(project_filter_app, extra_count, picker):
+    from datetime import datetime, timezone
+    from tendril.db.models import Issue
+    from tendril.tui.screens.project_filter_modal import ProjectFilterModal
+
+    app = project_filter_app
+    with app.session_factory() as session:
+        for key in ["D-1", "E-1", "F-1"][:extra_count]:
+            session.add(Issue(key=key, raw_json={}, last_synced_at=datetime.now(timezone.utc)))
+        session.commit()
+    async with app.run_test() as pilot:
+        await pilot.press("p")
+        assert isinstance(app.screen, ProjectFilterModal) is picker
+        if picker:
+            await pilot.press("escape")
+            assert len(_overview_keys(app)) == 9
+        else:
+            assert _overview_keys(app) == {"ABC-1"}
+
+
+async def test_project_picker_browse_multiple_options_with_keyboard(project_filter_app):
+    from textual.widgets import OptionList
+
+    app = project_filter_app
+    app.cfg.overview.project_picker_threshold = 0
+    async with app.run_test() as pilot:
+        await pilot.press("p", "down", "down", "down")
+        options = app.screen.query_one(OptionList)
+        assert options.get_option_at_index(options.highlighted).id == "project:PROJ"
+        await pilot.press("enter")
+        assert _overview_keys(app) == {"PROJ-1", "PROJ-2", "PROJ-3", "PROJ-4"}

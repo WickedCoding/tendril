@@ -281,3 +281,35 @@ def test_boards_rejects_pattern_missing_named_groups(isolated_xdg: Path) -> None
     )
     with pytest.raises(ConfigError, match="named groups"):
         cfg_mod.load()
+
+
+@pytest.mark.parametrize("threshold", [0, 2, 5, 20])
+def test_project_picker_threshold_roundtrip(isolated_xdg, threshold):
+    cfg = Config(
+        jira=JiraConfig(url="https://x", email="me@x"),
+        overview=OverviewConfig(done_statuses=["Done"], project_picker_threshold=threshold),
+    )
+    cfg_mod.save(cfg)
+    loaded = cfg_mod.load()
+    assert loaded.overview.project_picker_threshold == threshold
+    assert loaded.overview.done_statuses == ["Done"]
+
+
+@pytest.mark.parametrize("section", ["", "[overview]\ndone_statuses = []\n"])
+def test_project_picker_threshold_defaults_in_older_configs(isolated_xdg, section):
+    path = cfg_mod.config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('[jira]\nurl = "https://x"\nemail = "me@x"\n' + section)
+    assert cfg_mod.load().overview.project_picker_threshold == 5
+
+
+@pytest.mark.parametrize("value", ['-1', 'true', '1.5', '"5"', '[]'])
+def test_project_picker_threshold_rejects_invalid_values(isolated_xdg, value):
+    path = cfg_mod.config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        '[jira]\nurl = "https://x"\nemail = "me@x"\n'
+        f'[overview]\nproject_picker_threshold = {value}\n'
+    )
+    with pytest.raises(ConfigError, match="project_picker_threshold"):
+        cfg_mod.load()

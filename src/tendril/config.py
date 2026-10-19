@@ -80,6 +80,7 @@ class OverviewConfig:
     done_statuses: list[str] = field(
         default_factory=lambda: list(DEFAULT_DONE_STATUSES)
     )
+    project_picker_threshold: int = 5
 
 
 @dataclass
@@ -152,6 +153,13 @@ def load() -> Config:
         overview = OverviewConfig(done_statuses=list(done))
     else:
         overview = OverviewConfig()
+
+    threshold = overview_raw.get("project_picker_threshold", 5)
+    if type(threshold) is not int or threshold < 0:
+        raise ConfigError(
+            f"{path} [overview].project_picker_threshold must be a non-negative integer."
+        )
+    overview.project_picker_threshold = threshold
 
     skills_raw = raw.get("skills") or {}
     if "totals" in skills_raw:
@@ -240,7 +248,10 @@ def save(cfg: Config) -> Path:
         },
         "links": {"default_link_type": cfg.links.default_link_type},
         "sync": {"default_jql_extra": cfg.sync.default_jql_extra},
-        "overview": {"done_statuses": list(cfg.overview.done_statuses)},
+        "overview": {
+            "done_statuses": list(cfg.overview.done_statuses),
+            "project_picker_threshold": cfg.overview.project_picker_threshold,
+        },
         "skills": {"totals": list(cfg.skills.totals)},
         "rollover": {"statuses": list(cfg.rollover.statuses)},
     }

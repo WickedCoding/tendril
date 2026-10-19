@@ -69,10 +69,26 @@ Four screens plus a global search.
 | d   | drop watchlist marker on highlighted row     |
 | w   | toggle watchlist-only filter                 |
 | o   | toggle open-only filter (hides done statuses)|
+| p   | filter by project: cycle a short list or search in a picker |
 | s   | run incremental sync                         |
 | r   | reload from cache                            |
 | ↵   | open issue detail                            |
 | q   | quit                                         |
+
+The project filter uses cached project prefixes independently of the other
+filters. With up to five projects, `p` cycles through the sorted prefixes and
+back to all projects. Above five, it opens a searchable picker with the current
+selection highlighted and an **All projects** option. Enter selects; Esc leaves
+the filter unchanged. Configure the switch in `config.toml`:
+
+```toml
+[overview]
+project_picker_threshold = 5
+```
+
+The picker opens when the number of cached projects exceeds this non-negative
+integer. Set it to `0` to always use the picker when there are cached projects.
+An empty cache remains a no-op. Existing configs default to `5`.
 
 **Issue detail** — metadata plus tabs (Description, Comments, Links, Flags) on the left, a **Surfaces** panel on the right (7:3 split).
 
