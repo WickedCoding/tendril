@@ -117,3 +117,61 @@ def test_unknown_key_exits_1(cli_db) -> None:
     from tendril.cli import app
     result = CliRunner().invoke(app, ["show", "NOPE-1", "--json"])
     assert result.exit_code == 1
+
+
+def test_json_includes_comments_oldest_first(cli_db) -> None:
+    from tendril.cli import app
+    result = CliRunner().invoke(app, ["show", "PROJ-1", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["comment_count"] == 2
+    assert payload["comments"] == [
+        {
+            "id": "30001",
+            "author": "Alice Alignment",
+            "created": "2026-01-11T10:00:00+00:00",
+            "updated": "2026-01-11T10:00:00+00:00",
+            "body": "Kicking this off.",
+        },
+        {
+            "id": "30002",
+            "author": "Carol Cachehit",
+            "created": "2026-02-01T08:00:00+00:00",
+            "updated": "2026-02-01T08:00:00+00:00",
+            "body": "Second comment in ADF.",
+        },
+    ]
+
+
+def test_json_no_comments_keeps_count_only(cli_db) -> None:
+    from tendril.cli import app
+    result = CliRunner().invoke(app, ["show", "PROJ-1", "--json", "--no-comments"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert "comments" not in payload
+    assert payload["comment_count"] == 2
+
+
+def test_text_output_has_comments(cli_db) -> None:
+    from tendril.cli import app
+    result = CliRunner().invoke(app, ["show", "PROJ-1"])
+    assert result.exit_code == 0, result.output
+    assert "Comments" in result.output
+    assert "Kicking this off." in result.output
+    assert "Carol Cachehit" in result.output
+    assert result.output.index("Kicking this off.") < result.output.index("Second comment in ADF.")
+
+
+def test_text_output_no_comments_shows_count(cli_db) -> None:
+    from tendril.cli import app
+    result = CliRunner().invoke(app, ["show", "PROJ-1", "--no-comments"])
+    assert result.exit_code == 0, result.output
+    assert "Kicking this off." not in result.output
+    assert "2 comments" in result.output
+
+
+def test_text_output_without_comments(cli_db) -> None:
+    from tendril.cli import app
+    result = CliRunner().invoke(app, ["show", "PROJ-2"])
+    assert result.exit_code == 0, result.output
+    assert "no comments" in result.output

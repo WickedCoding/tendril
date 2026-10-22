@@ -21,12 +21,13 @@ from textual.widgets.option_list import Option
 from rich.text import Text
 from sqlalchemy import select
 
-from tendril.db.models import Comment, Issue, IssueLink, LinkType
+from tendril.db.models import Issue, IssueLink, LinkType
 from tendril.tags import ops as tag_ops
 from tendril.tags.matcher import find_surfaces
+from tendril.db.comments import format_comments, issue_comments
 from tendril.db.links import link_phrase, link_phrases
 from tendril.db.users import format_user, resolve_display_names
-from tendril.jira.render import render_body, render_description
+from tendril.jira.render import render_description
 from tendril.operations import ops as write_ops
 from tendril.tui.screens.comment_modal import CommentModal
 from tendril.tui.screens.flags_modal import FlagsModal
@@ -160,14 +161,12 @@ class IssueDetailScreen(Screen):
             desc = render_description(issue.raw_json)
             self.query_one("#description-body", Static).update(desc if desc is not None else "[no description]")
 
-            comments = session.scalars(
-                select(Comment).where(Comment.issue_key == self.issue_key).order_by(Comment.created)
-            ).all()
+            comments = issue_comments(session, self.issue_key)
             comment_names = resolve_display_names(
                 session, (c.author_account_id for c in comments)
             )
             self.query_one("#comments-body", Static).update(
-                _format_comments(comments, comment_names)
+                format_comments(comments, comment_names)
             )
 
             links = session.scalars(
@@ -551,15 +550,3 @@ def _status_cell(target_key: str, summaries: dict[str, tuple[str | None, str | N
     if target_key not in summaries:
         return "[dim]not synced[/dim]"
     return summaries[target_key][1] or "[dim]—[/dim]"
-
-def _format_comments(comments: list[Comment], names: dict[str, str]) -> Text:
-    if not comments:
-        return Text("[no comments]")
-    blocks: list[Text] = []
-    for c in comments:
-        author = format_user(c.author_account_id, names) if c.author_account_id else "unknown"
-        header = Text(f"— {author} · {local_time(c.created, missing='')}")
-        # Rows synced before migration 0006 may lack the raw body; the flattened text still reads.
-        body = render_body(c.body_raw) if c.body_raw is not None else None
-        blocks.append(Text("\n").join([header, body if body is not None else Text(c.body or "")]))
-    return Text("\n\n").join(blocks)

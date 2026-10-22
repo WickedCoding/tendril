@@ -18,7 +18,7 @@
     },
     {
       "name": "show",
-      "description": "Print an issue from the local cache: fields, description, and linked issues.",
+      "description": "Print an issue from the local cache: fields, description, linked issues, and comments.",
       "parameters": [
         {
           "name": "key",
@@ -33,6 +33,15 @@
           "flags": ["--json"],
           "type": "bool",
           "description": "Emit machine-readable JSON.",
+          "optional": true,
+          "default": false
+        },
+        {
+          "name": "no_comments",
+          "kind": "option",
+          "flags": ["--no-comments"],
+          "type": "bool",
+          "description": "Leave out the comments; only their count is shown.",
           "optional": true,
           "default": false
         }
