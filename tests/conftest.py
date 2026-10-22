@@ -12,6 +12,12 @@ from tendril.db.schema import init_schema
 FIXTURES = Path(__file__).parent / "fixtures" / "jira"
 
 
+@pytest.fixture(autouse=True)
+def _no_version_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep every test off pypi.org; version-check tests opt back in with delenv."""
+    monkeypatch.setenv("TENDRIL_NO_VERSION_CHECK", "1")
+
+
 @pytest.fixture
 def isolated_xdg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Point XDG_CONFIG_HOME and XDG_DATA_HOME at a tmp dir so tests can't touch real config."""
