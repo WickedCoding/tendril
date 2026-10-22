@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Overview: `p` cycles through cached project prefixes and back to all projects, or opens a searchable picker above `[overview].project_picker_threshold` (default 5; 0 always uses the picker for a non-empty cache). The picker highlights the current selection, offers All projects, and cancels with Esc. The status line shows the selected project, and it composes with watchlist/open/mine filters ([#2](https://github.com/WickedCoding/tendril/issues/2)).
 - Issue detail: `o` opens the current issue in the default browser, or the highlighted linked/child issue when the Links tab is active. Use `p` then `o` to open the parent. URLs use the configured JIRA base URL, including any context path ([#3](https://github.com/WickedCoding/tendril/issues/3)).
 
+### Changed
+- `tendril show KEY` prints the issue's comments (author, time, rendered body; oldest first) instead of only their count. `--json` adds a `comments` array (`id`, `author`, `created`, `updated`, `body` as plain text) next to `comment_count`. `--no-comments` restores the count-only output ([#13](https://github.com/WickedCoding/tendril/issues/13)).
+
 ### Fixed
 - `watchlist add` reports the total persisted watchlist size, including previously stored entries and duplicate input keys ([#6](https://github.com/WickedCoding/tendril/issues/6)).
 

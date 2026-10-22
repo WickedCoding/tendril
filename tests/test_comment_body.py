@@ -15,7 +15,7 @@ from tendril.db.models import Comment
 from tendril.db.schema import _alembic_config
 from tendril.jira.dto import normalize_issue
 from tendril.sync.pipeline import upsert_issue
-from tendril.tui.screens.issue_detail import _format_comments
+from tendril.db.comments import format_comments
 
 LIST_ADF = {
     "type": "doc",
@@ -53,7 +53,7 @@ def test_format_comments_renders_raw_body_and_falls_back_to_text() -> None:
     when = datetime(2026, 10, 5, 9, 0, tzinfo=timezone.utc)
     rendered = Comment(id="1", issue_key="P-1", body="Steps:onetwo", body_raw=LIST_ADF, created=when)
     legacy = Comment(id="2", issue_key="P-1", body="flattened only", body_raw=None, created=when)
-    out = _format_comments([rendered, legacy], {}).plain
+    out = format_comments([rendered, legacy], {}).plain
     assert "Steps:\n\n  • one\n  • two" in out
     assert "flattened only" in out
     assert "Steps:onetwo" not in out

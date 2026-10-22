@@ -14,6 +14,7 @@ from tendril import config as cfg_mod
 from tendril.config import Config, ConfigError, FieldsConfig, JiraConfig, LinksConfig, SyncConfig
 from tendril.tags import ops as tag_ops
 from tendril.db.engine import build_engine, session_factory
+from tendril.db.comments import comment_body, format_comments, issue_comments
 from tendril.db.links import link_phrase, link_phrases
 from tendril.db.models import Comment, Issue, IssueLink, WatchlistEntry
 from tendril.db.schema import init_schema
@@ -369,8 +370,9 @@ def watchlist_list_cmd() -> None:
 def show(
     key: str,
     json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_comments: bool = typer.Option(False, "--no-comments", help="Leave out the comments; only their count is shown."),
 ) -> None:
-    """Print an issue from the local cache: fields, description, and linked issues."""
+    """Print an issue from the local cache: fields, description, linked issues, and comments."""
     import json as _json
 
     session, close = _open_session()
@@ -380,7 +382,11 @@ def show(
             err_console.print(f"[yellow]{key} not in local cache. Run `tendril sync issue {key}` first.[/yellow]")
             raise typer.Exit(1)
 
-        names = resolve_display_names(session, (issue.assignee_account_id, issue.reporter_account_id))
+        comments = [] if no_comments else issue_comments(session, key)
+        names = resolve_display_names(
+            session,
+            (issue.assignee_account_id, issue.reporter_account_id, *(c.author_account_id for c in comments)),
+        )
         description = render_description(issue.raw_json)
         links = session.scalars(
             select(IssueLink).where(IssueLink.source_key == key).order_by(IssueLink.id)
@@ -433,6 +439,17 @@ def show(
                 ],
                 "comment_count": comment_count,
             }
+            if not no_comments:
+                payload["comments"] = [
+                    {
+                        "id": c.id,
+                        "author": _user(c.author_account_id),
+                        "created": c.created.isoformat() if c.created else None,
+                        "updated": c.updated.isoformat() if c.updated else None,
+                        "body": comment_body(c).plain,
+                    }
+                    for c in comments
+                ]
             console.print_json(_json.dumps(payload))
             return
 
@@ -468,7 +485,11 @@ def show(
                 links_table.add_row("contains", child.key, child.summary or "—", child.status or "-")
             console.print(links_table)
 
-        console.print(f"\n[dim]{plural(comment_count, 'comment')}[/dim]")
+        if no_comments:
+            console.print(f"\n[dim]{plural(comment_count, 'comment')}[/dim]")
+        else:
+            console.print(f"\n[bold]Comments[/bold] [dim]({comment_count})[/dim]")
+            console.print(format_comments(comments, names) if comments else "[dim]no comments[/dim]")
     finally:
         close()
 
