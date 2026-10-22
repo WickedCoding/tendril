@@ -1131,3 +1131,27 @@ async def test_project_picker_browse_multiple_options_with_keyboard(project_filt
         assert options.get_option_at_index(options.highlighted).id == "project:PROJ"
         await pilot.press("enter")
         assert _overview_keys(app) == {"PROJ-1", "PROJ-2", "PROJ-3", "PROJ-4"}
+
+
+@pytest.mark.asyncio
+async def test_update_popup_shows_on_launch_and_dismisses(isolated_xdg: Path) -> None:
+    from tendril.tui.screens.update_modal import UpdateNoticeModal
+    from tendril.tui.screens.watchlist import WatchlistScreen
+
+    app = TendrilApp(Config(jira=JiraConfig(url="https://x", email="me@x")), update_available="9.9.9")
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert isinstance(app.screen, UpdateNoticeModal)
+        await pilot.press("enter")
+        await pilot.pause()
+        assert isinstance(app.screen, WatchlistScreen)
+
+
+@pytest.mark.asyncio
+async def test_no_update_popup_without_newer_version(isolated_xdg: Path) -> None:
+    from tendril.tui.screens.watchlist import WatchlistScreen
+
+    app = TendrilApp(Config(jira=JiraConfig(url="https://x", email="me@x")))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert isinstance(app.screen, WatchlistScreen)

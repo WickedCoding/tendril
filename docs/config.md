@@ -77,3 +77,23 @@ The sprint rollover screen (`Shift+R`) leans on `[fields].story_points`, `[rollo
 - Config file: `~/.config/tendril/config.toml` (respects `XDG_CONFIG_HOME`)
 - Cache database: `~/.local/share/tendril/tendril.db` (respects `XDG_DATA_HOME`)
 - API token: OS keyring, service `tendril`, key `<your email>`
+- Version check: `~/.config/tendril/version-check.toml` (respects `XDG_CONFIG_HOME`)
+
+## Update check
+
+Once a day, tendril asks pypi.org for the latest `tendril-jira` release (2-second timeout) and records the result in `version-check.toml`:
+
+```toml
+checked_at = "2026-10-22T09:14:03+00:00"
+current = "1.6.0"
+latest = "1.7.0"
+```
+
+Within a day of `checked_at`, tendril reads `latest` from the file and makes no network call. A failed request still updates `checked_at`, so an offline machine retries the next day, not on every command.
+
+When `latest` is newer than the installed version:
+
+- `tendril` (the TUI) opens an "Update available" popup on launch. Enter or Esc closes it.
+- Every other command prints a yellow notice as its first line. Commands run with `--json` never print it, so their output stays parseable.
+
+Set `TENDRIL_NO_VERSION_CHECK=1` to turn the check off.

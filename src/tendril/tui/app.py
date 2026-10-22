@@ -29,9 +29,10 @@ class TendrilApp(App):
         Binding("R", "open_rollover_picker", "Rollover", show=False),
     ]
 
-    def __init__(self, cfg: Config) -> None:
+    def __init__(self, cfg: Config, update_available: str | None = None) -> None:
         super().__init__()
         self.cfg = cfg
+        self.update_available = update_available
         engine = build_engine()
         init_schema(engine)
         self.session_factory = make_session_factory(engine)
@@ -41,6 +42,10 @@ class TendrilApp(App):
         if self.cfg.ui.theme:
             self.theme = self.cfg.ui.theme
         self.push_screen(WatchlistScreen())
+        if self.update_available:
+            from tendril import version_check
+            from tendril.tui.screens.update_modal import UpdateNoticeModal
+            self.push_screen(UpdateNoticeModal(version_check.notice(self.update_available)))
         # Fire an incremental sync in the background only if we have projects to refresh.
         # Skipping the JIRA client build when there's nothing to do keeps the empty-cache
         # first-run experience clean (and lets tests skip credentials).

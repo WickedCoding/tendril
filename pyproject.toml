@@ -32,6 +32,7 @@ dependencies = [
     "textual>=0.71",
     "tomli-w>=1.0",
     "alembic>=1.13",
+    "packaging>=24",
 ]
 
 [project.scripts]

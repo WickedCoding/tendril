@@ -9,8 +9,10 @@ from rich.prompt import Prompt
 from rich.table import Table
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from typer.core import TyperGroup
 
 from tendril import config as cfg_mod
+from tendril import version_check
 from tendril.config import Config, ConfigError, FieldsConfig, JiraConfig, LinksConfig, SyncConfig
 from tendril.tags import ops as tag_ops
 from tendril.db.engine import build_engine, session_factory
@@ -24,7 +26,21 @@ from tendril.jira.render import render_description
 from tendril.sync import commands as sync_ops
 from tendril.text import local_time, plural
 
-app = typer.Typer(help="tendril — a keyboard-driven JIRA companion.")
+
+
+class _RootGroup(TyperGroup):
+    """Root group that keeps the raw argv in `ctx.meta` for the root callback.
+
+    Click no longer exposes the subcommand's arguments to the group callback, and
+    `_root` needs them to skip the update notice for `--json` output.
+    """
+
+    def parse_args(self, ctx, args):
+        ctx.meta["argv"] = list(args)
+        return super().parse_args(ctx, args)
+
+
+app = typer.Typer(help="tendril — a keyboard-driven JIRA companion.", cls=_RootGroup)
 config_app = typer.Typer(help="Manage tendril configuration.", no_args_is_help=True)
 sync_app = typer.Typer(
     help=(
@@ -65,10 +81,15 @@ def _root(
 ) -> None:
     """Launch the TUI when no subcommand is given."""
     if ctx.invoked_subcommand is not None:
+        # JSON output must stay machine-parseable, so it never gets the notice.
+        if "--json" not in ctx.meta.get("argv", []):
+            update_available = version_check.check()
+            if update_available:
+                console.print(f"[yellow]{version_check.notice(update_available)}[/yellow]", soft_wrap=True)
         return
     cfg = _load_config_or_die()
     from tendril.tui.app import TendrilApp
-    TendrilApp(cfg).run()
+    TendrilApp(cfg, update_available=version_check.check()).run()
 
 
 def _load_config_or_die() -> Config:

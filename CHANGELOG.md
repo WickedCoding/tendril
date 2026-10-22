@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Update check: once a day tendril asks pypi.org for the latest `tendril-jira` release and records it in `~/.config/tendril/version-check.toml`. When a newer version exists, the TUI shows a popup on launch and every non-`--json` command prints a yellow notice as its first line. `TENDRIL_NO_VERSION_CHECK=1` turns it off ([#12](https://github.com/WickedCoding/tendril/issues/12)).
 - Overview: `p` cycles through cached project prefixes and back to all projects, or opens a searchable picker above `[overview].project_picker_threshold` (default 5; 0 always uses the picker for a non-empty cache). The picker highlights the current selection, offers All projects, and cancels with Esc. The status line shows the selected project, and it composes with watchlist/open/mine filters ([#2](https://github.com/WickedCoding/tendril/issues/2)).
 - Issue detail: `o` opens the current issue in the default browser, or the highlighted linked/child issue when the Links tab is active. Use `p` then `o` to open the parent. URLs use the configured JIRA base URL, including any context path ([#3](https://github.com/WickedCoding/tendril/issues/3)).
 
