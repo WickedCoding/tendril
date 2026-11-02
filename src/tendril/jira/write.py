@@ -10,7 +10,7 @@ class JiraWriteLike(Protocol):
     def update_issue_field(self, key: str, fields: dict, notify_users: bool = True) -> Any: ...
     def add_issues_to_sprint(self, sprint_id: int, issues: list[str]) -> Any: ...
     def update_partially_sprint(self, sprint_id: int, data: dict) -> Any: ...
-    def rank_issues(self, data: dict) -> Any: ...
+    def put(self, path: str, data: dict) -> Any: ...
 
 
 # JIRA's `PUT /rest/agile/1.0/issue/rank` accepts up to 50 keys per call. A
@@ -93,5 +93,8 @@ def rank_issues_in_order(client: JiraWriteLike, ordered_keys: list[str]) -> None
     remaining = ordered_keys[1:]
     for start in range(0, len(remaining), _RANK_CHUNK_SIZE - 1):
         chunk = remaining[start : start + _RANK_CHUNK_SIZE - 1]
-        client.rank_issues({"issues": list(chunk), "rankAfterIssue": anchor})
+        client.put(
+            "rest/agile/1.0/issue/rank",
+            data={"issues": list(chunk), "rankAfterIssue": anchor},
+        )
         anchor = chunk[-1]
