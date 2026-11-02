@@ -81,8 +81,7 @@ class FakeJira:
         self.sprint_updates.append((sprint_id, dict(data)))
         return {}
 
-    def put(self, path: str, data: dict) -> dict:
-        assert path == "rest/agile/1.0/issue/rank"
+    def rank_issues(self, data: dict) -> dict:
         self.rank_calls.append(dict(data))
         return {}
 

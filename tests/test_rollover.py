@@ -235,8 +235,7 @@ class RolloverFakeJira:
             raise exc
         return {}
 
-    def put(self, path: str, data: dict) -> dict:
-        assert path == "rest/agile/1.0/issue/rank"
+    def rank_issues(self, data: dict) -> dict:
         self.rank_calls.append(dict(data))
         if self._raise_on_rank is not None:
             raise self._raise_on_rank
