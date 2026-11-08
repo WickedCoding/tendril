@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.7.1] - 2026-11-10
 
 ### Fixed
+- Treat project keys literally in `tendril project drop`, so SQL wildcard characters cannot match unrelated cached projects.
 - Sprint rollover ranks issues through the Agile REST endpoint supported by the configured Jira client, avoiding the missing `rank_issues` method error ([#11](https://github.com/WickedCoding/tendril/issues/11)).
 
 ## [1.7.0] - 2026-10-22

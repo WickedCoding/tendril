@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -303,6 +304,37 @@ def test_drop_project_leaves_other_projects_alone(
 
     assert session.get(Issue, "OTHER-1") is not None
     assert session.get(ProjectSyncState, "OTHER") is not None
+
+
+@pytest.mark.parametrize(
+    ("project_key", "remaining_keys"),
+    [
+        ("PR_J", {"PRXJ-1"}),
+        ("%", {"PR_J-1", "PRXJ-1"}),
+    ],
+)
+def test_drop_project_treats_like_wildcards_literally(
+    session: Session, project_key: str, remaining_keys: set[str],
+) -> None:
+    keys = {"PR_J-1", "PRXJ-1"}
+    for key in keys:
+        session.add(Issue(key=key, raw_json={}, last_synced_at=datetime(2026, 1, 1, tzinfo=timezone.utc)))
+        session.add(Comment(id=key, issue_key=key, body="Cached comment"))
+        session.add(IssueSprint(issue_key=key, sprint_id=1))
+        for source, target in ((key, "OTHER-1"), ("OTHER-1", key)):
+            session.add(IssueLink(
+                source_key=source, target_key=target, link_type="relates",
+                direction="outward", jira_link_id=key,
+            ))
+    session.commit()
+
+    assert drop_project(session, project_key) == len(keys - remaining_keys)
+    assert set(session.scalars(select(Issue.key))) == remaining_keys
+    assert set(session.scalars(select(Comment.issue_key))) == remaining_keys
+    assert set(session.scalars(select(IssueSprint.issue_key))) == remaining_keys
+    assert set(session.execute(select(IssueLink.source_key, IssueLink.target_key))) == {
+        link for key in remaining_keys for link in ((key, "OTHER-1"), ("OTHER-1", key))
+    }
 
 
 def test_drop_project_preserves_watchlist_and_tags(

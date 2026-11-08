@@ -132,17 +132,21 @@ def drop_project(session: Session, project_key: str) -> int:
 
     Returns the number of `Issue` rows removed.
     """
-    key_like = f"{project_key}-%"
+    key_like = f"{_like_escape(project_key)}-%"
+    escape = "\\"
     issue_count = session.scalar(
-        select(func.count()).select_from(Issue).where(Issue.key.like(key_like))
+        select(func.count()).select_from(Issue).where(Issue.key.like(key_like, escape=escape))
     ) or 0
 
-    session.execute(delete(Comment).where(Comment.issue_key.like(key_like)))
-    session.execute(delete(IssueSprint).where(IssueSprint.issue_key.like(key_like)))
+    session.execute(delete(Comment).where(Comment.issue_key.like(key_like, escape=escape)))
+    session.execute(delete(IssueSprint).where(IssueSprint.issue_key.like(key_like, escape=escape)))
     session.execute(delete(IssueLink).where(
-        or_(IssueLink.source_key.like(key_like), IssueLink.target_key.like(key_like))
+        or_(
+            IssueLink.source_key.like(key_like, escape=escape),
+            IssueLink.target_key.like(key_like, escape=escape),
+        )
     ))
-    session.execute(delete(Issue).where(Issue.key.like(key_like)))
+    session.execute(delete(Issue).where(Issue.key.like(key_like, escape=escape)))
     session.execute(delete(ProjectSyncState).where(ProjectSyncState.project_key == project_key))
 
     session.commit()
