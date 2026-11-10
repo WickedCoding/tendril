@@ -58,4 +58,4 @@ last error: json.decoder.JSONDecodeError
 ## Limits
 
 - A crash that closes the TUI cannot be reported this way, because the palette is gone. Restart Tendril and describe the crash in the issue yourself.
-- The `feedback` label comes from the issue template. The template is used only after this file is on the default branch.
+- Labels come from the issue templates `.github/ISSUE_TEMPLATE/feedback-bug.md` (`bug`) and `feedback-idea.md` (`enhancement`), so they apply for everyone. GitHub uses a template only after it is on the default branch.

@@ -130,9 +130,20 @@ def test_issue_url_shape() -> None:
     assert f"{parsed.scheme}://{parsed.netloc}{parsed.path}" == f"{feedback.REPO_URL}/issues/new"
     query = parse_qs(parsed.query)
     assert query["title"] == ["[idea] IssueDetailScreen: "]
-    assert query["labels"] == ["enhancement"]
-    assert query["template"] == [feedback.ISSUE_TEMPLATE]
+    assert "labels" not in query  # GitHub drops it for users without triage rights
+    assert query["template"] == ["feedback-idea.md"]
+    bug_query = parse_qs(urlparse(feedback.issue_url(_ctx(), "bug")).query)
+    assert bug_query["template"] == ["feedback-bug.md"]
     assert feedback.PUBLIC_WARNING in query["body"][0]
+
+
+def test_issue_templates_exist_with_existing_labels() -> None:
+    repo = Path(tendril.__file__).resolve().parents[2]
+    expected = {"feedback-bug.md": "labels: bug", "feedback-idea.md": "labels: enhancement"}
+    assert set(feedback.ISSUE_TEMPLATES.values()) == set(expected)
+    for name, label_line in expected.items():
+        text = (repo / ".github" / "ISSUE_TEMPLATE" / name).read_text()
+        assert label_line in text.splitlines()
 
 
 # ---- entry point: command palette only ------------------------------------
