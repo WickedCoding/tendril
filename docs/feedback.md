@@ -16,8 +16,8 @@ Tendril adds only the fields below. The set is fixed in `FeedbackContext` (`src/
 | terminal | `120x40` | Columns × rows |
 | screens | `WatchlistScreen > IssueDetailScreen` | Screen class names only |
 | focused | `DataTable` | Widget class name only, no id |
-| recent actions | `IssueDetailScreen.add_comment` | Last 10 action names. Action parameters (such as issue keys) are dropped |
-| config | `fields.sprint: yes` | Whether optional settings are set. Never field ids, names or counts |
+| recent actions | `open IssueDetailScreen`, `IssueDetailScreen.add_comment` | Last 10 screen opens/closes and tendril's own screen actions. Scrolling, cursor moves, Textual built-ins and the feedback preview itself are left out. Action parameters (such as issue keys) are dropped |
+| config | `fields.sprint: yes` | Bug reports only. Whether optional settings are set. Never field ids, names or counts |
 | last error | `requests.exceptions.HTTPError` plus frames such as `tendril/operations/ops.py:42 in add_comment` | Type and code locations of the last failed background job. Never the message. Paths outside tendril, installed packages and the standard library show as `<external>` |
 
 ## What Tendril never adds
@@ -37,7 +37,9 @@ terminal: 80x24
 screens: WatchlistScreen > SprintWatchlistScreen
 focused: DataTable
 recent actions:
+  - open WatchlistScreen
   - TendrilApp.open_sprint_watchlist
+  - open SprintWatchlistScreen
   - SprintWatchlistScreen.toggle_mine_filter
 config:
   fields.feature_flags: no
