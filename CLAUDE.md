@@ -44,6 +44,18 @@ Layered, one direction of dependency: `cli.py` / `tui/` → `operations/` and `s
 
 > [!info] Database schema is present in `.claude/docs/database.md`
 
+## Querying the cache as JSON
+
+Prefer these over raw SQLite queries. All read the local cache only; run `tendril sync` first if freshness matters.
+
+| Command | Output | Use it for |
+|---|---|---|
+| `tendril show KEY --json [--no-comments]` | One object: `key`, `project`, `summary`, `status`, `issuetype`, `assignee`, `reporter`, `parent`, dates, `description`, `links[]` (`key`, `type`, `direction`, `phrase`, `summary`, `status`, `cached`), `children[]` (`key`, `summary`, `status`), `comment_count`, `comments[]` | Full detail on one issue; list an epic's or parent's children with their status; walk links |
+| `tendril search [--status] [--project] [--assignee] [--sprint] [--tag] --json` | `{"issues": [...]}`, each with `key`, `project`, `summary`, `status`, `issuetype`, `assignee`, `sprints[]`, `tags[]`, `updated` | Filter across the cache. `--status`, `--project`, `--tag` take comma-separated values (any of: `--status="Draft,Ready for Acc"`); repeating the option keeps only the last value. `--assignee` and `--sprint` take one exact, case-insensitive name. Different options AND |
+| `tendril tag list [KEY] --json` | `{"KEY": ["tag", ...]}` for every tagged issue, or just `KEY` | Read local tags; confirm a `tag add` / `tag set` landed |
+
+There is no parent filter on `search`: to act on an epic's children, read `children` from `show EPIC --json`, then loop over the keys with `tag add KEY TAG` (one key per call) or pass them to `watchlist add`, which takes several keys.
+
 ## Invariants worth respecting
 
 - **Sync fills the cache; the watchlist is a marker on top.** Adding a watchlist key never fetches — if the key isn't cached, the CLI/TUI tells the user to `sync issue KEY`.
@@ -55,6 +67,7 @@ Layered, one direction of dependency: `cli.py` / `tui/` → `operations/` and `s
 - **Sprint rollover** (`Shift+R` in the TUI, `docs/rollover.md`) needs `[fields].story_points`, optionally `[fields].skills`, and `[rollover].statuses` / `[skills].totals` for the projected totals. Per-project sprint-name regex sits under `[boards.<PROJECT>].sprint_pattern` with named groups `prefix` and `number`; validated at config load. **Tendril never creates sprints** — a missing next sprint refuses the flow with a clear message. **SP reductions are local-only** — they shape the projected right-panel totals and never write back to JIRA. **Ordered writes are resumable, not reversible**: `RolloverAttempt` records `completed_step` between each of the four steps; a partial attempt is surfaced on re-entry and resumed via `Shift+R`. Preserve this pattern when adding new multi-step JIRA writes.
 - **Schema changes go through Alembic.** Add a revision under `src/tendril/migrations/versions/`; `init_schema` runs `alembic upgrade head` on every startup, so a new revision applies on next launch.
 - **`cli.json` must stay in lockstep with the CLI.** Whenever a `tendril` command or parameter is added, renamed, removed, or its description changes, update `cli.json` in the same commit. It is the machine-readable manifest of the CLI surface and drifts silently if forgotten.
+- **Feedback is content-free and palette-only** (`docs/feedback.md`). `FeedbackContext` in `feedback.py` is the allowlist of everything that may reach the public GitHub repo: class names, action names (never params), booleans, exception type plus sanitized frames (never messages or absolute paths). Adding a field means updating the pinned set in `tests/test_feedback.py`. The only entry point is the "Send feedback…" command-palette hit; do not add a key binding, an `action_*` method or a CLI command for it.
 
 ## Testing notes
 
