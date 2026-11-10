@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-11-10
+
 ### Fixed
 - Sprint rollover ranks issues through the Agile REST endpoint supported by the configured Jira client, avoiding the missing `rank_issues` method error ([#11](https://github.com/WickedCoding/tendril/issues/11)).
 
