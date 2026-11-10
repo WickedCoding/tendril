@@ -1,12 +1,18 @@
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections import deque
+from typing import Any, Callable, Mapping
 
+from textual.actions import ActionParseResult, parse as parse_action
 from textual.app import App
+from textual.command import CommandPalette
+from textual.dom import DOMNode
+from textual.screen import Screen
 from textual.binding import Binding
 from textual.worker import Worker
 
 from tendril import config as config_mod
+from tendril import feedback
 from tendril.config import Config
 from tendril.db.engine import build_engine, session_factory as make_session_factory
 from tendril.db.schema import init_schema
@@ -14,7 +20,7 @@ from tendril.db.models import ProjectSyncState
 from tendril.jira import client as jira_client
 from tendril.sync.commands import incremental_sync, sync_issue, sync_project
 from tendril.text import plural
-from tendril.tui.commands import SortCommands, SyncCommands
+from tendril.tui.commands import FeedbackCommands, SortCommands, SyncCommands
 from tendril.tui.screens.watchlist import WatchlistScreen
 
 
@@ -22,7 +28,7 @@ class TendrilApp(App):
     """Textual app root. Holds the SQLAlchemy session factory and JIRA client."""
 
     TITLE = "tendril"
-    COMMANDS = App.COMMANDS | {SyncCommands, SortCommands}
+    COMMANDS = App.COMMANDS | {SyncCommands, SortCommands, FeedbackCommands}
     BINDINGS = [
         Binding("/", "open_search", "Search", show=False),
         Binding("S", "open_sprint_watchlist", "Sprint", show=False),
@@ -37,6 +43,10 @@ class TendrilApp(App):
         init_schema(engine)
         self.session_factory = make_session_factory(engine)
         self._jira = None  # lazy — do not hit keyring until needed
+        # Feedback context. Action names only (never params) and the last
+        # worker error; see tendril.feedback for what may leave the machine.
+        self._recent_actions: deque[str] = deque(maxlen=10)
+        self._last_error: BaseException | None = None
 
     def on_mount(self) -> None:
         if self.cfg.ui.theme:
@@ -88,6 +98,7 @@ class TendrilApp(App):
                 with self.session_factory() as session:
                     fn(session, client)
             except Exception as e:  # noqa: BLE001
+                self.record_error(e)
                 self.call_from_thread(self.notify, f"{label} failed: {e}", severity="error")
                 return
             self.call_from_thread(self.notify, f"{label} ok.")
@@ -112,6 +123,7 @@ class TendrilApp(App):
             with self.session_factory() as session:
                 rows = sync_project(client, session, project_key, cfg=self.cfg)
         except Exception as e:  # noqa: BLE001
+            self.record_error(e)
             self.call_from_thread(
                 self.notify, f"Sync {project_key} failed: {e}", severity="error"
             )
@@ -141,6 +153,7 @@ class TendrilApp(App):
             with self.session_factory() as session:
                 rows = incremental_sync(client, session, cfg=self.cfg)
         except Exception as e:  # noqa: BLE001
+            self.record_error(e)
             self.call_from_thread(self.notify, f"Sync failed: {e}", severity="error")
             return
         self.call_from_thread(self.notify, f"Synced {plural(len(rows), 'changed issue')}.")
@@ -152,11 +165,101 @@ class TendrilApp(App):
             with self.session_factory() as session:
                 sync_issue(client, session, key, cfg=self.cfg)
         except Exception as e:  # noqa: BLE001
+            self.record_error(e)
             self.call_from_thread(self.notify, f"Refresh failed: {e}", severity="error")
             return
         self.call_from_thread(self.notify, f"Refreshed {key}.")
         if on_done is not None:
             self.call_from_thread(on_done)
+
+    # ---- feedback (command palette only; see tendril.feedback) ----
+
+    async def run_action(
+        self,
+        action: str | ActionParseResult,
+        default_namespace: DOMNode | None = None,
+        namespaces: Mapping[str, DOMNode] | None = None,
+    ) -> bool:
+        handled = await super().run_action(action, default_namespace, namespaces)
+        if handled:
+            self._record_action(action, default_namespace)
+        return handled
+
+    def _record_action(
+        self, action: str | ActionParseResult, default_namespace: DOMNode | None
+    ) -> None:
+        """Remember the action name and its target's class. Never the params."""
+        destination, name, _params = parse_action(action) if isinstance(action, str) else action
+        if destination == "app":
+            target: object = self
+        elif destination == "screen":
+            target = self.screen
+        elif destination:
+            target = destination
+        else:
+            target = default_namespace if default_namespace is not None else self
+        if self._inside_palette(target):
+            return  # palette navigation is noise, not user intent
+        owner = target if isinstance(target, str) else type(target).__name__
+        self._recent_actions.append(f"{owner}.{name}")
+
+    @staticmethod
+    def _inside_palette(target: object) -> bool:
+        if isinstance(target, CommandPalette):
+            return True
+        if isinstance(target, DOMNode) and not isinstance(target, App):
+            try:
+                return isinstance(target.screen, CommandPalette)
+            except Exception:  # noqa: BLE001 - unmounted node; recording must never fail an action
+                return False
+        return False
+
+    def record_error(self, error: BaseException) -> None:
+        """Keep the latest worker failure for a feedback report (sanitized on use)."""
+        self._last_error = error
+
+    def feedback_context(self, screen: Screen) -> feedback.FeedbackContext:
+        """Allowlisted context for `screen`, the screen the palette was summoned from."""
+        stack = list(self.screen_stack)
+        if screen in stack:
+            stack = stack[: stack.index(screen) + 1]
+        # Drop the palette and Textual's default base screen; neither says where the user was.
+        stack = [s for s in stack if not isinstance(s, CommandPalette) and type(s) is not Screen]
+        focused = screen.focused
+        tendril_version, python_version, os_name = feedback.environment()
+        return feedback.FeedbackContext(
+            tendril_version=tendril_version,
+            python_version=python_version,
+            os_name=os_name,
+            terminal_size=f"{self.size.width}x{self.size.height}",
+            screen_stack=tuple(type(s).__name__ for s in stack),
+            focused_widget=type(focused).__name__ if focused is not None else None,
+            recent_actions=tuple(self._recent_actions),
+            error=(
+                feedback.sanitize_traceback(self._last_error)
+                if self._last_error is not None
+                else None
+            ),
+            config_shape=feedback.config_shape(self.cfg),
+        )
+
+    def open_feedback(self, screen: Screen) -> None:
+        """Show the feedback preview; on confirm, open the prefilled GitHub issue.
+
+        Deliberately not an `action_*` method: the command palette is the only
+        way in, so no key binding or markup link can reach it.
+        """
+        from tendril.tui.screens.feedback_modal import FeedbackModal
+
+        ctx = self.feedback_context(screen)
+
+        def after(kind: feedback.Kind | None) -> None:
+            if kind is None:
+                return
+            self.open_url(feedback.issue_url(ctx, kind))
+            self.notify("Opened GitHub in your browser. Review the issue before you submit it.")
+
+        self.push_screen(FeedbackModal(ctx), after)
 
     def _reload_top_screen(self) -> None:
         screen = self.screen
