@@ -68,6 +68,30 @@ class SyncCommands(Provider):
                 )
 
 
+class FeedbackCommands(Provider):
+    """The single entry point for content-free feedback.
+
+    Feedback is reachable only from the command palette: there is no key
+    binding and no CLI command. The screen is captured here because the
+    palette dismisses itself before it runs the selected command.
+    """
+
+    LABEL = "Send feedback…"
+    HELP = "Open a prefilled GitHub issue with screen and version context. No JIRA content is included."
+
+    def _open(self) -> None:
+        self.app.open_feedback(self.screen)  # type: ignore[attr-defined]
+
+    async def discover(self) -> Hits:
+        yield DiscoveryHit(self.LABEL, self._open, help=self.HELP)
+
+    async def search(self, query: str) -> Hits:
+        matcher = self.matcher(query)
+        score = matcher.match(self.LABEL)
+        if score > 0:
+            yield Hit(score, matcher.highlight(self.LABEL), self._open, help=self.HELP)
+
+
 class SortCommands(Provider):
     """Sort entries for whichever sortable table the current screen exposes.
 

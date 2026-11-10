@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Feedback: **Send feedback…** in the command palette shows a preview of a content-free report and opens a prefilled GitHub issue in the browser. The report holds only versions, terminal size, screen and widget class names, recent action names, config shape as yes/no, and the type and code locations of the last background error. It never includes JIRA data, URLs, names, exception messages or absolute paths. See `docs/feedback.md`.
+
 ## [1.7.1] - 2026-11-10
 
 ### Fixed
