@@ -23,7 +23,9 @@ from tendril import version_check
 from tendril.config import DEFAULT_ROLLOVER_STATUSES, DEFAULT_SKILLS_TOTALS, Config
 
 REPO_URL = "https://github.com/WickedCoding/tendril"
-ISSUE_TEMPLATE = "feedback.md"
+# Labels live in the templates: GitHub drops a `labels=` query parameter
+# for anyone without triage rights, but applies template labels for everyone.
+ISSUE_TEMPLATES: dict[str, str] = {"bug": "feedback-bug.md", "idea": "feedback-idea.md"}
 MAX_FRAMES = 15
 MAX_URL_LENGTH = 8000
 PUBLIC_WARNING = (
@@ -167,9 +169,8 @@ def _title(ctx: FeedbackContext, kind: Kind) -> str:
 def _build_url(ctx: FeedbackContext, kind: Kind) -> str:
     query = urlencode(
         {
-            "template": ISSUE_TEMPLATE,
+            "template": ISSUE_TEMPLATES[kind],
             "title": _title(ctx, kind),
-            "labels": "bug" if kind == "bug" else "enhancement",
             "body": render_body(ctx, kind),
         }
     )
