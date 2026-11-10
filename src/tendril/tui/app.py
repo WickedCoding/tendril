@@ -21,7 +21,12 @@ from tendril.jira import client as jira_client
 from tendril.sync.commands import incremental_sync, sync_issue, sync_project
 from tendril.text import plural
 from tendril.tui.commands import FeedbackCommands, SortCommands, SyncCommands
+from tendril.tui.screens.feedback_modal import FeedbackModal
 from tendril.tui.screens.watchlist import WatchlistScreen
+
+
+def _defined_in_tendril(obj: object) -> bool:
+    return getattr(obj, "__module__", "").startswith("tendril.")
 
 
 class TendrilApp(App):
@@ -180,39 +185,55 @@ class TendrilApp(App):
         default_namespace: DOMNode | None = None,
         namespaces: Mapping[str, DOMNode] | None = None,
     ) -> bool:
-        handled = await super().run_action(action, default_namespace, namespaces)
-        if handled:
-            self._record_action(action, default_namespace)
-        return handled
+        # Record before dispatch so the action precedes any screen it opens.
+        self._record_action(action, default_namespace)
+        return await super().run_action(action, default_namespace, namespaces)
 
     def _record_action(
         self, action: str | ActionParseResult, default_namespace: DOMNode | None
     ) -> None:
-        """Remember the action name and its target's class. Never the params."""
+        """Remember tendril's own screen/app actions by name. Never the params.
+
+        Widget actions (scrolling, cursor moves) and Textual's built-in actions
+        say nothing about what the user was doing, so they are skipped.
+        """
         destination, name, _params = parse_action(action) if isinstance(action, str) else action
         if destination == "app":
             target: object = self
         elif destination == "screen":
             target = self.screen
         elif destination:
-            target = destination
+            return  # other namespaces are widget-level
         else:
             target = default_namespace if default_namespace is not None else self
-        if self._inside_palette(target):
-            return  # palette navigation is noise, not user intent
-        owner = target if isinstance(target, str) else type(target).__name__
-        self._recent_actions.append(f"{owner}.{name}")
+        if not self._is_tracked(target):
+            return
+        method = getattr(type(target), f"action_{name}", None) or getattr(
+            type(target), f"_action_{name}", None
+        )
+        if not _defined_in_tendril(method):
+            return
+        self._recent_actions.append(f"{type(target).__name__}.{name}")
 
     @staticmethod
-    def _inside_palette(target: object) -> bool:
-        if isinstance(target, CommandPalette):
-            return True
-        if isinstance(target, DOMNode) and not isinstance(target, App):
-            try:
-                return isinstance(target.screen, CommandPalette)
-            except Exception:  # noqa: BLE001 - unmounted node; recording must never fail an action
-                return False
-        return False
+    def _is_tracked(target: object) -> bool:
+        """Tendril's own screens and app; never the feedback modal itself."""
+        return (
+            isinstance(target, (Screen, App))
+            and _defined_in_tendril(type(target))
+            and not isinstance(target, FeedbackModal)
+        )
+
+    def push_screen(self, screen: Any, *args: Any, **kwargs: Any) -> Any:
+        if self._is_tracked(screen):
+            self._recent_actions.append(f"open {type(screen).__name__}")
+        return super().push_screen(screen, *args, **kwargs)
+
+    def pop_screen(self) -> Any:
+        closing = self.screen_stack[-1] if self.screen_stack else None
+        if self._is_tracked(closing):
+            self._recent_actions.append(f"close {type(closing).__name__}")
+        return super().pop_screen()
 
     def record_error(self, error: BaseException) -> None:
         """Keep the latest worker failure for a feedback report (sanitized on use)."""
@@ -249,8 +270,6 @@ class TendrilApp(App):
         Deliberately not an `action_*` method: the command palette is the only
         way in, so no key binding or markup link can reach it.
         """
-        from tendril.tui.screens.feedback_modal import FeedbackModal
-
         ctx = self.feedback_context(screen)
 
         def after(kind: feedback.Kind | None) -> None:

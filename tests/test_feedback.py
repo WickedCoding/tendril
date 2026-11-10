@@ -114,6 +114,16 @@ def test_url_stays_under_limit_with_deep_traceback() -> None:
     assert "RecursionError" in unquote_plus(url)
 
 
+def test_config_only_in_bug_reports() -> None:
+    ctx = _ctx()
+    bug = unquote_plus(feedback.issue_url(ctx, "bug"))
+    idea = unquote_plus(feedback.issue_url(ctx, "idea"))
+    assert "fields.sprint" in bug and "config:" in bug
+    assert "fields.sprint" not in idea and "config" not in idea
+    preview = feedback.render_context(ctx)
+    assert "config (bug reports only):" in preview
+
+
 def test_issue_url_shape() -> None:
     url = feedback.issue_url(_ctx(screen_stack=("WatchlistScreen", "IssueDetailScreen")), "idea")
     parsed = urlparse(url)
@@ -208,8 +218,7 @@ async def test_palette_feedback_flow_leaks_nothing(
         ctx = app.screen._ctx
         assert ctx.screen_stack[-1] == "IssueDetailScreen"
         assert "CommandPalette" not in ctx.screen_stack
-        assert ctx.recent_actions, "opening the issue should have recorded an action"
-        assert not any("PROJ-1" in a or "(" in a for a in ctx.recent_actions)
+        assert ctx.recent_actions == ("open WatchlistScreen", "open IssueDetailScreen")
 
         await pilot.press("b")
         await pilot.pause()
@@ -219,6 +228,7 @@ async def test_palette_feedback_flow_leaks_nothing(
     assert url.startswith(f"{feedback.REPO_URL}/issues/new?")
     decoded = unquote_plus(url)
     assert "builtins.RuntimeError" in decoded
+    assert "config:" in decoded  # bug report
     for secret in (
         "secret-corp",
         "person@",
@@ -229,3 +239,47 @@ async def test_palette_feedback_flow_leaks_nothing(
         str(Path(tendril.__file__).resolve().parents[2]),
     ):
         assert secret not in decoded, secret
+
+
+async def test_trail_keeps_only_tendril_actions_and_screens(
+    isolated_xdg: Path, load_fixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cursor moves, scrolls, Textual built-ins and the feedback modal stay out."""
+    _seed(load_fixture)
+    app = TendrilApp(Config(jira=JiraConfig(url="https://x", email="me@x")))
+    monkeypatch.setattr(app, "open_url", lambda url, **_: None)
+
+    async def open_feedback(pilot) -> None:
+        await pilot.press("ctrl+p")
+        await pilot.pause()
+        await pilot.press(*"feedback")
+        await pilot.pause(0.3)
+        await pilot.press("enter")
+        await pilot.pause()
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("down", "up", "down")  # DataTable cursor
+        await pilot.press("S")  # TendrilApp.open_sprint_watchlist
+        await pilot.pause()
+        await pilot.press("m")  # SprintWatchlistScreen.toggle_mine_filter
+        await pilot.press("escape")  # Textual pop -> "close"
+        await pilot.pause()
+
+        # A first feedback run, with scrolling inside the preview, then cancel.
+        await open_feedback(pilot)
+        await pilot.press("down", "down", "up", "escape")
+        await pilot.pause()
+
+        await open_feedback(pilot)
+        from tendril.tui.screens.feedback_modal import FeedbackModal
+
+        assert isinstance(app.screen, FeedbackModal)
+        assert app.screen._ctx.recent_actions == (
+            "open WatchlistScreen",
+            "TendrilApp.open_sprint_watchlist",
+            "open SprintWatchlistScreen",
+            "SprintWatchlistScreen.toggle_mine_filter",
+            "SprintWatchlistScreen.pop",
+            "close SprintWatchlistScreen",
+        )
